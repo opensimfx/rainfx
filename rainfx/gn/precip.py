@@ -4,6 +4,8 @@ Pipeline (see docs/SYSTEM_DESIGN.md):
 
   INIT   Points in a box -> diameter (truncated exponential / Marshall-Palmer),
          terminal speed vt(D, mode), relaxation time tau, initial velocity.
+         +-Z ray-parity against the colliders removes start points inside
+         enclosed volumes.
   SIM    per step (Simulation Zone, dt from Delta Time):
            1. split primaries / splash droplets
            2. primaries: v <- v_target + (v - v_target) exp(-dt / tau)
@@ -40,7 +42,7 @@ import bpy
 from .dsl import B
 
 GROUP_NAME = "RainFX Precipitation"
-GROUP_VERSION = 3
+GROUP_VERSION = 4
 E = 2.718281828459045
 
 
@@ -176,6 +178,27 @@ def build() -> bpy.types.NodeTree:
                           ("velocity", vel0, "FLOAT_VECTOR"), ("kind", 0.0, "FLOAT"),
                           ("age", 0.0, "FLOAT"), ("life", 0.0, "FLOAT"), ("bounces", 0.0, "FLOAT")):
         geo = b.store(geo, name, val, dt)
+
+    # reject start points inside a collider: a +-Z ray-parity test - a point
+    # in an enclosed volume gets Is Hit in both directions (open-top shapes
+    # like cups stay undetected; respawned points are never re-checked)
+    in_pos = b.node("GeometryNodeInputPosition").outputs[0]
+    up_hit = down_hit = None
+    for direction in ((0.0, 0.0, 1.0), (0.0, 0.0, -1.0)):
+        rc = b.node("GeometryNodeRaycast", data_type="FLOAT")
+        b.put(rc.inputs["Target Geometry"], collider_geo)
+        b.put(rc.inputs["Source Position"], in_pos)
+        b.put(rc.inputs["Ray Direction"], direction)
+        b.put(rc.inputs["Ray Length"], 100.0)
+        is_hit = rc.outputs["Is Hit"]
+        if up_hit is None:
+            up_hit = is_hit
+        else:
+            down_hit = is_hit
+    inside = b.node("FunctionNodeBooleanMath", operation="AND")
+    b.put(inside.inputs[0], up_hit)
+    b.put(inside.inputs[1], down_hit)
+    geo = b.delete(geo, inside.outputs["Boolean"])
 
     # ------------------------------------------------------------------ SIM
     sim_in = b.node("GeometryNodeSimulationInput")

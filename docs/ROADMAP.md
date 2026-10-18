@@ -15,7 +15,7 @@ Exit criteria: acceptance checklist passes on 5.2.1; extension validator passes;
 |---|---|
 | Follow Object input | **Done (0.2.0)**: world-space volume follows the camera or a target via the Follow Object / Follow Offset controls — wrap is world-anchored, no parenting needed (`tests/blender_follow_smoke.py`) |
 | Collider velocity transfer | **Done (0.2.0)**: the realised collider set rides inside the sim state as a snapshot; per-vertex velocity matched step-over-step with Geometry Proximity and sampled at the hit; Collider Push slider (`tests/blender_motion_smoke.py`) |
-| Seeded-inside-collider cleanup | Reject initial points inside colliders (ray parity test) to remove warm-up |
+| Seeded-inside-collider cleanup | **Done (0.2.0)**: init +Z/-Z ray parity rejects start points inside enclosed colliders (`tests/blender_inside_smoke.py`); open-top shapes and respawned points stay untested |
 | Stable bake workflow | Bake panel with frame range, progress, delete, packed vs disk cache choice |
 | Material polish | Tuned streak, splash, hail and snow shaders for EEVEE and Cycles; refraction-friendly drop variant for close-ups |
 | Extension validation | **Done (0.2.0)**: manifest maintainer/website/copyright filled in (github.com/opensimfx/rainfx), permissions reviewed (user preset file read/write), zip passes `extension validate` |

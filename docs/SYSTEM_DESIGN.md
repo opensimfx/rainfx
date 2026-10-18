@@ -117,7 +117,9 @@ dropped at the zone boundary (documented behaviour of simulation zones).
 ### 4.2 Initialisation (frame 1, evaluated once)
 
 1. Count = `Count x (Viewport Density if in viewport else 1)`.
-2. Positions: uniform random in the box (X, Y centred, Z from 0 to height), then offset by the volume origin
+2. Positions: uniform random in the box (X, Y centred, Z from 0 to height), then offset by the volume origin; a
+   +Z/-Z ray-parity test against the colliders deletes any start point inside an enclosed volume (respawned
+   points are not re-checked)
    (Follow Object's world location + Follow Offset; the emitter itself when no object is set).
 3. Diameter: inverse-CDF sample of an exponential truncated to [D Min, D Max] with slope Lambda.
    `D = Dmin - ln(1 - u (1 - exp(-L (Dmax - Dmin)))) / L`. For rain, Lambda = 4.1 R^-0.21 (Marshall-Palmer).
@@ -220,7 +222,7 @@ two-object collider set). Expect much better numbers on multi-core hardware, but
 ## 9. Known limitations (v0.2)
 
 1. Collider velocities are translation-only: matched step-over-step by nearest point, so rotating or deforming colliders get approximate velocities, and changing the collider set mid-simulation costs one inaccurate step.
-2. Particles seeded inside a collider fall to its inner faces before recycling; allow about 2 s of warm-up.
+2. Only init positions get the inside-collider test; a recycled (respawned) drop can still start inside a collider for one follow-up scan of the box. Open-topped shapes (cups) are not detected by the ray parity.
 3. One impact per particle per step; with default 24 fps and speeds under 15 m/s this is not visible.
 4. Snow does not accumulate. Wetness and snow cover are phase 2.
 5. Visual quality (streak material look in EEVEE and Cycles) has not been render-tested.

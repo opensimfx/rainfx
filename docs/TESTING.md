@@ -8,6 +8,7 @@
 | Simulation behaviour | `tests/blender_smoke.py` | yes (`bpy`) | The Geometry Nodes simulation obeys physics: no particle ends below the floor, none inside a collider, hail bounces, rain splashes, speeds plausible |
 | Follow Object | `tests/blender_follow_smoke.py` | yes (`bpy`) | The volume relocates with the follow target during movement (spawn, wrap, recycle stay inside the moving box), fixed mode keeps emitter-local output |
 | Moving colliders | `tests/blender_motion_smoke.py` | yes (`bpy`) | Splashes from a moving cube carry the cube's velocity (both run share and mean speed checked); push-off control run stays slow |
+| Inside-collider starts | `tests/blender_inside_smoke.py` | yes (`bpy`) | Start points inside a closed room are rejected at init (~5% of the volume rejected, zero primaries inside the cavity from the first frame) |
 | Scene helpers | `tests/blender_scene_smoke.py` | yes | Fog and lighting scale and revert, lightning keyframes fire, compositor is not overwritten, dew is capped, the particle engine collides and kills, the 5.2 input-path branch logic |
 | UI | `tests/blender_ui_smoke.py` | yes | Register / unregister, operators, live preset switching, diagnostics |
 

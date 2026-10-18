@@ -18,7 +18,7 @@ Exit criteria: acceptance checklist passes on 5.2.1; extension validator passes;
 | Seeded-inside-collider cleanup | Reject initial points inside colliders (ray parity test) to remove warm-up |
 | Stable bake workflow | Bake panel with frame range, progress, delete, packed vs disk cache choice |
 | Material polish | Tuned streak, splash, hail and snow shaders for EEVEE and Cycles; refraction-friendly drop variant for close-ups |
-| Extension validation | Manifest validated, permissions reviewed, release zip |
+| Extension validation | **Done (0.2.0)**: manifest maintainer/website/copyright filled in (github.com/opensimfx/rainfx), permissions reviewed (user preset file read/write), zip passes `extension validate` |
 | Determinism tests | Same seed gives identical frames across sessions; animated collider test |
 
 ## Phase 2 - Surfaces and atmosphere

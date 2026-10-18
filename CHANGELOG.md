@@ -5,6 +5,7 @@
 - Follow Object: the precipitation volume tracks any object's world location (usually the camera)
   through the new Follow Object / Follow Offset controls; moving emitters no longer freeze the rain.
   Verified headless in Blender 5.2.1 ("`tests/blender_follow_smoke.py`").
+- Extension metadata: maintainer, website and copyright filled in (github.com/opensimfx/rainfx).
 - Collider velocity transfer: moving colliders (vehicles) push splashes and steer bounces. The node
   group snapshots the realised colliders inside the simulation state each step, matches vertices with
   Geometry Proximity and hands the sampled velocity at the hit to the impact physics (new *Collider

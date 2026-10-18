@@ -4,10 +4,10 @@ id = "rainfx"
 version = "0.2.0"
 name = "RainFX"
 tagline = "Physically based rain, hail, snow and dew with collisions"
-maintainer = "Your Name <you@example.com>"
+maintainer = "arsh342 <arsh342@users.noreply.github.com>"
 type = "add-on"
 
-website = "https://example.com/rainfx"
+website = "https://github.com/opensimfx/rainfx"
 tags = ["Physics", "Render", "Lighting"]
 
 blender_version_min = "5.0.0"
@@ -15,7 +15,7 @@ license = [
   "SPDX:GPL-3.0-or-later",
 ]
 copyright = [
-  "2026 Your Name",
+  "2026 opensimfx",
 ]
 
 [permissions]

@@ -1,0 +1,3 @@
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]          # blender_*.py need bpy and are run as scripts, see docs/TESTING.md

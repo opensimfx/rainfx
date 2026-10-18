@@ -1,0 +1,14 @@
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Build artifacts
+dist/
+rainfx-0.1.0-extension/
+
+# Blender backup files
+*.blend1

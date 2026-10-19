@@ -1,6 +1,6 @@
 # Roadmap
 
-Each phase ends with a Blender 5.2.1 acceptance pass (`TESTING.md` section 5). Scope is ordered by value to rendered output.
+Each phase ends with a Blender 5.2.1 acceptance pass (the Testing section of `SYSTEM_DESIGN.md`). Scope is ordered by value to rendered output.
 
 ## Phase 0 - v0.1 (this repository)
 

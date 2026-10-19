@@ -32,7 +32,7 @@ For development, run Blender with the package folder symlinked into your extensi
 1. Model or open your scene (ground, buildings, props).
 2. Select the objects that should stop rain, click **Add Selected as Colliders**.
 3. Pick a preset, click **Add Weather Emitter** at the 3D cursor. Set the Volume (X, Y, height) to cover the camera view.
-4. Start playback from the scene start frame. Rain needs roughly 2 s to fill the volume; start the timeline early or bake.
+4. Start playback from the scene start frame. Rain needs roughly 2 s to fill the volume; start the timeline early or bake (RainFX panel → *Simulation → Bake*).
 5. Render with EEVEE or Cycles. Streaks are already motion-blurred; disable renderer motion blur for the drops.
 
 Full guide: `docs/USER_GUIDE.md`.

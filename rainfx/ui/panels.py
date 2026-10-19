@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import bpy
 
-from ..scene import emitter as em
+from ..scene import baker, emitter as em
 
 
 class RAINFX_PT_main(bpy.types.Panel):
@@ -28,11 +28,18 @@ class RAINFX_PT_main(bpy.types.Panel):
         col.prop(s, "wind_mult")
         col.prop(s, "box")
         col.prop(s, "seed")
+        col.prop(s, "refraction_drops")
         lo.prop(s, "follow_object")
         if s.follow_object:
             col = lo.column(align=True)
             col.prop(s, "follow_offset")
             lo.label(text="Volume follows %s in world space" % s.follow_object.name, icon="TRACKING")
+        lo.prop(s, "distant_rain", icon="MOD_PARTICLES")
+        if s.distant_rain:
+            lo.prop(s, "distant_density")
+        lo.prop(s, "lens_drops", icon="MOD_DISPLACE")
+        if s.lens_drops:
+            lo.prop(s, "lens_strength")
         lo.prop(s, "live_update")
         row = lo.row(align=True)
         row.prop(s, "with_atmosphere", toggle=True)
@@ -57,7 +64,14 @@ class RAINFX_PT_collision(bpy.types.Panel):
         row = lo.row(align=True)
         row.operator("rainfx.colliders_add", icon="ADD")
         row.operator("rainfx.colliders_remove", icon="REMOVE")
+        s = context.scene.rainfx
+        lo.prop(s, "wetness", icon="MOD_FLUID")  # MOD_SMOKE was removed in 5.2; wetness needs an emitter in the scene
+        if s.wetness:
+            lo.prop(s, "wet_radius")
+            lo.prop(s, "wet_strength")
+            lo.prop(s, "wet_dry_rate")
         lo.label(text="Rain is raycast against these meshes.")
+        lo.operator("rainfx.export_events", icon="SOUND", text="Export Impact Events")
 
 
 class RAINFX_PT_derived(bpy.types.Panel):
@@ -116,10 +130,21 @@ class RAINFX_PT_engines(bpy.types.Panel):
     def draw(self, context):
         lo = self.layout
         lo.operator("rainfx.bake", icon="PHYSICS")
+        lo.operator("rainfx.bake_delete", icon="TRASH")
+        handle = baker.active()
+        if handle is not None:
+            running, done = baker.progress(handle)
+            pct = round(100.0 * done / max(handle["expected"], 1))
+            if running:
+                lo.label(text=f"Background bake: {done}/{handle['expected']} frames ({pct}%)",
+                         icon="PHYSICS")
+            else:
+                lo.label(text=f"Background bake complete: {done}/{handle['expected']}",
+                         icon="PHYSICS")
         lo.operator("rainfx.legacy_emitter", icon="PARTICLES")
         lo.operator("rainfx.diagnose", icon="CONSOLE")
         if not bpy.data.filepath:
-            lo.label(text="Save the file to enable baking", icon="ERROR")
+            lo.label(text="Save the file to enable disk baking", icon="ERROR")
 
 
 class RainFXPreferences(bpy.types.AddonPreferences):

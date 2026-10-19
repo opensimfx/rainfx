@@ -6,7 +6,7 @@
    Only mesh objects count. Use simple proxy meshes for dense geometry; the raycast cost grows with triangle count.
 2. **Preset.** Pick one in the RainFX tab. The box under the dropdown describes it.
 3. **Volume.** Set X, Y and height so the volume covers everything the camera sees plus a margin; wind pushes drops sideways and they wrap around the box.
-4. **Add Weather Emitter** (placed at the 3D cursor). Fog, sky dimming and lightning are created too if their toggles are on.
+4. **Add Weather Emitter** (placed at the 3D cursor). Fog, sky dimming and lightning are created too if their toggles are on. A demo ground plane (RainFX Surface) and a Suzanne (RainFX Suzanne) are also seeded and joined to the collision set the first time, so rain lands visibly right away — swap in your own meshes later via the Collision panel (select them, Add Colliders) or just delete the demo objects.
 5. **Play from the start frame.** The simulation needs a short warm-up; for a render, start the timeline 2 s before the shot or bake.
 
 The emitter's origin is the centre of the *bottom* of the volume. Put it on the ground.
@@ -23,6 +23,12 @@ The emitter's origin is the centre of the *bottom* of the volume. Put it on the 
 | Live Update | Re-applies the preset on change | Turn off for slow scenes |
 | Follow Object | The volume base follows this object's world location (emitter itself if empty) | Pick the camera for camera-following rain |
 | Follow Offset | World offset of the volume base from the follow point | For a camera set Z = -half volume height so the camera sits mid-column |
+| Refraction Drops | Rain drops use a clear refraction material instead of translucent streaks | Close-up shots; set *Shutter* 0 so drops render as spheres |
+| Wetness (Collision sub-panel) | Surfaces darken and gloss where drops actually land, low spots pool as lingering wet puddle shading with a shimmering ripple bump — a hidden "RainFX Impacts" carrier feeds each collider's helper modifier | On for ground shots in rain; tune Wet Radius / Strength, raise Dry Rate for quick-drying surfaces |
+| Snow accumulation (Wetness sub-panel) | Under snow presets, up-facing surfaces gain a per-vertex snow cover that lifts vertices along their normals (*Snow Depth*; metres) and brightens/roughens the surface; tune with *Snow Rate* (snow units per second inside a flake footprint) directly on the helper modifier | On automatically with the Wetness toggle in snow presets; plateaus at Snow Depth on fully covered spots |
+| Distant Rain | A cheap background drizzle layer fills the far view so the near-field simulation can stay sparse; translucent far streaks fall at the preset's own wind and speed around a 3x reach shelf, and the layer follows the Follow Object like fog | On for wide establishing shots; far streaks are open-world filler and never collide; tune *Distant Density* (0.02-3.0) for the look |
+| Lens Drops | A compositing droplet stage smears the rendered frame like water on the camera glass: round beads plus stretched drip streaks keep falling down the lens via frame-driven drifting maps; constant cost, no animation work | On for camera-attached shots through rain; scale with *Lens Strength* (0.1-3.0); only builds on the RainFX post chain — a scene with its own compositing nodes is left untouched |
+| Export Impact Events | A one-click JSON log (Collision panel) for audio middleware: frame, emitter-local position (multiply by the emitter's matrix_world when follow-mounted), intensity = landing drop diameter in mm and type impact/snow, plus fps, preset and mean terminal velocity in the header | Run after the rain is built and the frame range is final; the export replays the sim (deterministic, matches bakes); split impact/snow entries so flake landings can map to softer sound layers |
 | Fog + Sky / Lightning | Extras created with the preset | Turn off if you light the scene yourself |
 
 Derived Physics (sub-panel) shows what the preset produced: particle count, mean diameter, terminal speed, relaxation time, streak tilt, streak length and the ratio to physical drop density.
@@ -37,7 +43,7 @@ Derived Physics (sub-panel) shows what the preset produced: particle count, mean
 | Cloudburst | Downpour | Reduce Quality for the viewport; the fog density is high |
 | Storm | Thunderstorm, Wind-Driven Rain | Gusts are noise-based; lightning flashes are keyframed |
 | Ice | Freezing Rain, Sleet, Hailstorm | Sleet and hail bounce off colliders (restitution, max bounces) |
-| Snow | Light Snow, Heavy Snow, Blizzard | Flakes stick and recycle; no accumulation yet |
+| Snow | Light Snow, Heavy Snow, Blizzard | Flakes stick and recycle; up-facing surfaces accumulate a snow cover (Wetness toggle + helper *Snow Rate* / *Snow Depth*) |
 
 ## 4. Viewport vs render
 
@@ -47,9 +53,14 @@ Derived Physics (sub-panel) shows what the preset produced: particle count, mean
 
 ## 5. Baking
 
-Save the .blend, select the emitter, click *Bake Simulation*. The bake covers the scene frame range. Delete the bake from the
-Physics tab or the modifier panel to re-simulate. A baked simulation is the only reliable way to get identical frames
-across render nodes.
+Save the .blend and pick the emitter, then *Simulation → Bake* (RainFX panel). The dialog pre-fills the scene
+frame range; *Packed cache* stores the result inside the .blend, otherwise the bake files go under
+`<emitter>_rainfx_bake` next to the saved file. Bake the range you render, starting at the scene start frame —
+replay is exact over the baked range, and a partial bake that stops early should be re-run (or the file reloaded)
+if your render range extends past it. *Delete* frees disk files and packed data; playback then re-simulates live.
+Tick *Background bake* (disk bakes only) to bake in a second Blender process and keep working: live progress
+shows in the panel while the bake runs.
+A baked simulation is the only reliable way to get identical frames across render nodes.
 
 ## 6. Rendering tips
 
@@ -94,7 +105,7 @@ act on legacy particles. It uses one mean drop size and straight paths at the me
 | Rain passes through an object | Object is not in `RainFX Colliders`, or it is not a mesh | Add Selected as Colliders; convert curves and text to mesh |
 | Rain inside buildings at frame 1 | Particles are seeded inside colliders | Start the timeline earlier; they recycle within about 2 s |
 | Viewport slow | Too many particles or dense colliders | Lower Quality or Viewport Density, use proxy colliders |
-| *Bake Simulation* is grayed out | The file has not been saved | Save the .blend |
+| *Bake* errors | Unsaved file (disk bake) or no active emitter | Save the .blend and select an emitter; *Packed cache* also works on unsaved scenes |
 | Dew looks too sparse or too dense | Density is per m2 and capped at 200,000 total | Edit `Density` / `Max Beads` in the modifier |
 | Lighting looks wrong after switching presets | Sky and sun were scaled | *Restore Sky / Sun* resets to the stored originals |
 | Presets list shorter than expected | A user preset file failed to parse | Check the console for `[RainFX] skipped user preset file` |

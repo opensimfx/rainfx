@@ -12,3 +12,6 @@ rainfx-0.1.0-extension/
 
 # Blender backup files
 *.blend1
+
+# Agent task tracking (local only)
+tasks/

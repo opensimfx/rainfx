@@ -17,7 +17,7 @@ Goals
 Non-goals (v0.1)
 
 - Particle-particle collisions, drop coalescence, drag-based drop deformation.
-- Surface wetness, puddles and ripples (planned, `ROADMAP.md` phase 2).
+- Real puddle geometry and expanding-ring ripples (shipped 0.2.0 as shading cues: pool mask, dark gloss + ripple bump; see ROADMAP.md phase 2 for the physical successors).
 - Volumetric rain curtains for distant rain (phase 2).
 - Fluid-grade splashes (Mantaflow hero mode, phase 3).
 
@@ -66,12 +66,17 @@ logic testable with plain `pytest` (`tests/test_physics.py`, 11 tests) and keeps
 | `gn/dsl.py` | Builder over `bpy` node trees. Looks sockets up by name among enabled sockets, never by identifier |
 | `gn/precip.py` | Builds the `RainFX Precipitation` group: init, simulation zone, rendering instances |
 | `gn/dew.py` | Builds the `RainFX Dew` group: beads on up-facing collider faces with a hard count cap |
-| `gn/materials.py` | Water, splash, ice, snow, dew materials, created on demand |
-| `scene/emitter.py` | Creates emitters, applies presets to modifiers, manages the colliders collection |
+| `gn/materials.py` | Water, splash, ice, snow, dew materials, created on demand; `wire_wetness()` links the wet look into a collider's material |
+| `gn/wetness.py` | Builds the `RainFX Wetness` helper group: per-collider accumulation of `rainfx_wet` per face, `rainfx_pool` standing water mask, per-vertex `rainfx_snow` + post-sim normal lift |
+| `gn/distant.py` | Builds the static `RainFX Distant` far layer group: seeded scatter, per-frame deterministic wrap drift, align-to-fall streak instancing (see 4.8) |
+| `scene/distant.py` | Creates/updates/removes the background layer object, pushes preset-derived wind/fall speed, parents it to the Follow Object like the fog |
+| `scene/wetness.py` | Attaches/removes the helper per collider and refreshes the hidden `RainFX Impacts` / `RainFX Snow Impacts` carriers each frame (see 4.6/4.7) |
+| `scene/emitter.py` | Creates emitters, applies presets to modifiers, stores the applied wind on `rainfx_wind` for far-layer sync; `create_demo` seeds the demo ground plane + Suzanne colliders on the add operator (idempotent by name) |
 | `scene/atmosphere.py` | Fog volume, reversible sky and sun scaling |
 | `scene/lighting.py` | Seeded lightning schedule as constant-interpolated keyframes |
-| `scene/compositor.py` | Glow chain only if the scene has no compositor nodes |
+| `scene/compositor.py` | Glare chain if the scene has no compositor tree (never touches foreign trees); Lens Drops stage: two procedurally generated signed droplet maps drifted through a Displacement stage by frame drivers (see 4.9) |
 | `scene/legacy_particles.py` | Alternative engine on Blender's emitter particle system |
+| `scene/events.py` | Sound-ready export: replays the frame range, reads the impact sink ('imp' verts) each frame, writes JSON event log (see 4.10) |
 | `compat.py` | All version-dependent API access |
 | `ui/*` | Properties, operators, panels, preferences. No simulation logic |
 
@@ -167,7 +172,8 @@ splash update: v += g dt ; pos += v dt ; age += dt ; delete where age > life
 
 Primaries become instances: cylinder (6 vertices) aligned to velocity and stretched to `|v| x Shutter`, or an ico
 sphere when `Shutter = 0`. Width is `D x Visual Scale`. Splash droplets are ico spheres. `Output Mode = 1` outputs the raw
-state as mesh vertices instead (used by the tests and useful for custom instancing).
+state as mesh vertices instead (used by the tests and useful for custom instancing). Primary drops that land this frame
+also form an invisible vertex mesh inside the output (named `imp` flag = 1, zero area, renders nothing).
 
 ### 4.5 Why these choices (decision records)
 
@@ -183,6 +189,121 @@ state as mesh vertices instead (used by the tests and useful for custom instanci
 | D8 | `compat.py` is the only place that branches on version | Version checks scattered | The modifier input API changed in 5.2 and the compositor in 5.0 |
 | D9 | Sockets looked up by name among enabled sockets | Identifier or index lookup | Compare and Random Value identifiers are type-suffixed and changed in 5.2 |
 | D10 | Visual scale and streaks over physical drop size | True 0.5-5 mm drops | A 2 mm drop is sub-pixel at normal camera distances; streaks of length speed x shutter reproduce what a real camera records |
+| D11 | Wetness via a hidden impact-carrier object | Helpers reading the emitter directly (pure GN), Dynamic Paint | ObjectInfo back to the emitter closes a dependency cycle the depsgraph breaks by serving empty geometry once two or more helpers read it (verified headless). DP cannot read GN instance geometry. The carrier costs one tiny frame_change handler; wet state stays in bake-safe helper sim zones |
+
+### 4.6 Wetness (`RainFX Wetness` helper)
+
+Each wet-enabled collider gets a `RainFX Wetness` node modifier at the top of its stack. It runs its own
+simulation zone that accumulates a per-face `rainfx_wet` float: each step it finds how close the face
+centre is to any current impact vertex, adds `Strength x exp(-distance / Wet Radius)`, and decays the
+value by `Dry Rate x dt` (saturating at 1). The same step accumulates a per-face `rainfx_pool`
+standing-water mask: the increment is footprinted on up-facing faces (`max(0, normal_z)`) and weighted
+by a height mask over the object's own bounding box (low spots pool up to 65% stronger; the mask is a
+weight, not a gate, so raised tops still pool at the 35% floor). Pools fill instantly inside the
+footprint and dry 4x slower (`Dry Rate x dt x 0.25`), reading as lingering standing water.
+`materials.wire_wetness()` links both attributes into the surface: Base Color pulled toward a dark
+pool colour and roughness scaled by `1 - 0.85 x max(wet, pool)` — glossier, darker where wet (5.2's
+Principled has no Wet Amount socket, so the cue is colour + roughness). Where `rainfx_pool` rises, the
+material also gets a procedural ripple bump: noise texture over Object coordinates drifted along X by
+a frame-driven time value (5.2's noise W socket is disabled), bump strength proportional to the pool
+mask.
+
+The impacts are not read from the emitter directly (D11): a hidden `RainFX Impacts` mesh object is
+refreshed every frame by a `frame_change_post` handler that copies the emitter's evaluated impact
+vertices; the helpers read that carrier via ObjectInfo. Wet *state* lives only in each helper's sim
+zone, so baking is unaffected — the handler is just the input feed.
+
+### 4.7 Snow cover (same helper, second carrier)
+
+Snow lands come from a second hidden carrier: the emitter stores a named `snow` flag on landings
+(pure arithmetic `1 - min(|mode - 2|, 1)` — Compare nodes evaluated stale inside this field
+context in 5.2.1, verified by probe; group version forces a rebuild), and the handler routes
+landings with the flag into `RainFX Snow Impacts` while plain rain hits keep going to
+`RainFX Impacts`. The helper accumulates snow per vertex: per step it footprints flake proximity
+by the same radius decay, gates on the *up-facing* factor `max(0, vertex normal_z)` (cube corners
+keep a 0.577 share of the vertical normal) and adds `Snow Rate x dt` inside the footprint to
+`saturated 1`. After the sim zone, a fresh Set Position lifts vertices along their normals by
+`rainfx_snow x Snow Depth` — recomputed from the accumulated attribute every evaluation so the
+sim state itself never receives displacement (no feedback, bake-safe).
+`materials.wire_wetness()` stacks the snow look after the water cues: Base Color mixes toward
+snow white by `rainfx_snow`, and roughness lifts by `+0.5 x snow` (clamped at 1) over the
+wet-darkened value. Snow Rate and Snow Depth stay untouched by refresh (user tunables persist).
+Note flake flux: light snow falls ~1 m/s, so a tall/sparse box takes a while before enough flakes
+cross a raised face — the group version registry is precip 8 / wetness 3.
+
+### 4.8 Distant rain (`RainFX Distant` far layer)
+
+The near field is deliberately sparse (density ratio ~1%), so the far view needs filling. A
+standalone `RainFX Distant` object carries a second, deliberately independent GN group — never
+touching the emitter's eval mesh that the impact handler scans (`ObjectInfo`-back emitter still
+owns its own object). The group is static: no simulation zone, no cache, no point state. The
+`GeometryNodePoints` node's own position field freezes one seeded random spot per streak; the
+motion is `(wind.xy, -vt) x scene seconds` wrapped through the box by a per-axis FRACTION of the
+box span (FRACTION maps negatives upward, XY recentred afterwards), so every frame is a pure
+function of frame time — replay, bake and live-edit safe by construction. Streaks align their Z
+to the fall vector and lengthen with `vt x 0.12 x Streak Scale` like a time exposure (slow snow
+presets read as short dots automatically). Instances are realized into the output so the
+evaluated geometry equals what renders.
+
+The scene side (`scene/distant.py`) mirrors the fog lifecycle: a display-bounds box object in
+the RainFX collection, scaled to a 3x reach / max(2x height, 20 m) shelf, positioned at the
+emitter and parented to the Follow Object exactly like `atmosphere.create_fog`. Inputs come
+from the emitter's stored derived values — `wind` now persists as `obj["rainfx_wind"]` (the
+mult-scaled wind tuple, previously lost to the scalar-only `rainfx_derived` store) and
+`vt_mean_ms` from `rainfx_derived` — so far motion matches the simulation and re-syncs on every
+Apply. `Count = 0.5 x Distant Density x far volume`. The `distant` material kind is a flat
+translucent BLENDED streak with no transmission, keeping EEVEE cheap at thousands of instances.
+Group version registry: precip 8 / wetness 3 / distant 1.
+
+### 4.9 Lens interaction (compositor droplets)
+
+The far layer fills the world; this item fills the glass. When Lens Drops is on, the RainFX
+post tree (built by `create_post` if the scene has none — foreign trees are still never
+touched) gets a Displacement stage inserted between Render Layers and Glare: two 128px
+`float_buffer` RGBA maps generated at runtime carry droplets — mostly round beads, a quarter
+stretched into drip streaks — encoded as signed displacement (`R` = dx, `G` = dy, amplitude
+`4 x Lens Strength`, smooth `alpha` falloff) in an AlphaOver stack. Two Transform nodes drift
+the maps downward (`frame x -0.35` and `frame x -0.85` frame drivers, `REPEAT` extension) so
+streaks keep running down the glass in a non-repeating mix. Every inserted node is marked
+`['rainfx_lens']`, so `remove_lens` can strip the stage and relink the bare chain; strengths
+re-bake the maps in place (only when they change by more than 0.02) — drivers move pixels,
+no per-frame Python.
+
+Implementation guards learned the hard way in 5.2.1: generated images MUST be
+`float_buffer=True` (byte images saturate the signed values >1 to 1.0 and clamp negatives to
+0, which renders the stage as an exact no-op for many seeds), map size stays at 128px because
+256px+ generated images sample black in the compositor, and `Image.update()` must never be
+called on a generated buffer (it resets it). Transform units are pixels per frame; the drift
+rates are feel-calibrated, not derived from wind (the stage is screen-space, deliberately
+decoupled from world physics). Strength is capped at 3.0 so the stage reads as refraction,
+not a broken image.
+
+(The GN group-version registry does not change: precip 8 / wetness 3 / distant 1 — no
+Geometry Nodes in this stage.)
+
+### 4.10 Sound-ready impact events
+
+`scene/events.py::export_events` turns the sim into a replayed event log for audio
+middleware. It reuses the impact sink that already rides the emitter output — every landed
+drop each frame exists as a real vertex flagged `imp > 0.5` in the emitter's evaluated mesh
+(the same stream the wetness handler reads) — so there is no new node group and no cache:
+for each frame in the range, the depsgraph is stepped, the sink verts are read
+(`imp` → presence, `snow` → 'snow' vs 'impact' type, `diameter` → intensity in mm; up to
+256 per frame via even-stride sampling) and the frame's events joined below. Positions are
+emitter-local (consumers multiply by the emitter's `matrix_world` when the layer is
+follow-mounted). The operator `rainfx.export_events` (Collision panel button, *Export
+Impact Events*) applies this to the active emitter and writes
+`{"version": 1, "fps", "frame_start", "frame_end", "preset", "vt_mean_ms", "sample_stride",
+"events": [...]}` — default path `<user presets>/rainfx_impact_events.json`, with a *File
+Path* property for a custom target. Headless emitters reset their spawn points at the
+viewport residence multiplier, so the exporter pushes `Viewport Density` to 1.0 for the
+walk and restores the user's value afterwards; the stride is `ceil(hits / cap)` to
+guarantee the cap. The replay is the deterministic per-frame sim stepping, so an export
+matches bake playback and every rerun. Rain/snow landings stay separated so middleware can
+map flake impacts to softer sound layers.
+
+(Registry unchanged — no Geometry Nodes; the push/restore on `Viewport Density` is the
+only socket traffic.)
 
 ## 5. Rain density: physical vs simulated
 
@@ -207,7 +328,17 @@ two-object collider set). Expect much better numbers on multi-core hardware, but
 
 ## 7. Caching and determinism
 
-- Simulation caches follow Blender's standard bake workflow (`simulation_nodes_cache_bake`); the panel exposes Bake (requires a saved file).
+- Simulation caches follow Blender's standard bake workflow; the RainFX panel exposes *Bake* (scene frame range,
+  disk or packed target) and *Delete* (`rainfx.bake` / `bake_delete` wrap `simulation_nodes_cache_bake/delete`).
+- Baked frames replay exactly when the bake starts at the scene start frame (verified: disk and packed, partial
+  ranges covered-exactly); continuing past the baked end is not identity-stable in Blender 5.2.1, so re-bake when
+  the render range grows.
+- *Background bake* (0.2.0): bpy is main-thread-only and the stock bake op is one blocking call, so a true
+  "different thread" is a second headless Blender process (`rainfx/scene/baker.py`) opened on the saved .blend.
+  The parent pre-sets the bake metadata (range, `bake_target='DISK'`, `bake_directory`), which persists through
+  the save, and the child re-applies it and runs the stock bake op. Progress is the number of per-frame cache
+  files (`<bake_dir>/<record-id>/blobs/*.blob`) against the expected count — polled by a 0.5 s `bpy.app.timers`
+  tick that also sets a WAIT cursor. Packed bakes keep the legacy in-process path bit-for-bit.
 - Random streams are seeded from `Seed` and the scene frame, so the same file is expected to give the same weather (not covered by a test yet).
 - Changing Count, box size or most inputs requires a re-bake or playing again from the start frame, as with any simulation zone.
 
@@ -224,6 +355,9 @@ two-object collider set). Expect much better numbers on multi-core hardware, but
 1. Collider velocities are translation-only: matched step-over-step by nearest point, so rotating or deforming colliders get approximate velocities, and changing the collider set mid-simulation costs one inaccurate step.
 2. Only init positions get the inside-collider test; a recycled (respawned) drop can still start inside a collider for one follow-up scan of the box. Open-topped shapes (cups) are not detected by the ray parity.
 3. One impact per particle per step; with default 24 fps and speeds under 15 m/s this is not visible.
-4. Snow does not accumulate. Wetness and snow cover are phase 2.
-5. Visual quality (streak material look in EEVEE and Cycles) has not been render-tested.
-6. Blender 5.2.1 runtime behaviour is unverified (see `TESTING.md`).
+4. Puddles are an amber cue (colour + roughness + ripple bump), not real water: no geometry, no refraction, no growing ring waves.
+5. Snow lift is per vertex on the receiving face's own normals, so low-res meshes lift as plates and seams can open where normals differ; there is no melt or settling physics.
+6. The distant layer is a wrapping open-world filler: it never collides, splashes or gates on camera distance, and its shelf edge is visible if a wide shot puts the camera outside it (turn the layer off or enlarge the Volume).
+7. The lens stage is screen-space: droplet drift is calibrated by feel (pixels per frame, decoupled from wind), and a droplet warps whatever the camera sees — it has no notion of what is behind the glass, so very bright highlights can smear unrealistically. The stage also assumes an unclipped camera framing.
+8. Impact-event exports sample the impact sink with a per-frame cap of 256 (even stride), so dense storms are a statistical sample, not a lossless record; 'intensity' is only the landing drop's diameter (no per-event velocity), and positions are emitter-local — consumers multiply by the emitter's `matrix_world` when the layer is follow-mounted. The export replays the whole frame range sequentially, so cost grows linearly with range and collision complexity.
+9. Blender 5.2.1 runtime behaviour is unverified (see `TESTING.md`).

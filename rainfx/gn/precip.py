@@ -16,7 +16,9 @@ Pipeline (see docs/SYSTEM_DESIGN.md):
            4. wrap horizontally in the box, recycle below the floor
            5. splash droplets: ballistic, aged, deleted at end of life
   OUTPUT instances aligned to velocity, stretched by shutter time (streaks),
-         or raw vertices for debugging / custom instancing.
+         or raw vertices for debugging / custom instancing. Landings are
+         additionally emitted as an invisible mesh of real vertices (impact
+         events) that wetness helpers on colliders can read via ObjectInfo.
 
   All positions are world-space numbers inside the graph; the sim box base
   sits at the Follow Object's location (or the emitter if no object is set).
@@ -42,7 +44,7 @@ import bpy
 from .dsl import B
 
 GROUP_NAME = "RainFX Precipitation"
-GROUP_VERSION = 4
+GROUP_VERSION = 8
 E = 2.718281828459045
 
 
@@ -316,6 +318,16 @@ def build() -> bpy.types.NodeTree:
     P1 = b.set_position(Pc, position=C["n_pos"])
     P1 = b.store(P1, "velocity", C["n_vel"], "FLOAT_VECTOR")
     P1 = b.store(P1, "bounces", C["n_b"], "FLOAT")
+    # impact flag as a NAMED attr (captured items are nameless and unreadable later)
+    P1 = b.store(P1, "imp", do_land, "FLOAT")
+    # snowfall flag per landing (Modes==2; FunctionNodeCompare EQUAL, unlike the
+    # Math-COMPARE m2 whose COMPARING output is 1 when inputs DIFFER) so the
+    # wetness carrier handler can split rain impacts from snowflakes
+    # snow flag by pure arithmetic: 1.0 only when Mode == 2 (Compare nodes go
+    # stale/mis-eval inside this field context in 5.2.1 — verified by probe)
+    d2 = b.fm("ABSOLUTE", b.fm("SUBTRACT", mode, 2.0))
+    flag = b.fm("SUBTRACT", 1.0, b.fm("MINIMUM", d2, 1.0))
+    P1 = b.store(P1, "snow", flag, "FLOAT")
 
     # --- splash spawn --------------------------------------------------------
     src, _ = b.separate(Pc, C["spawn"])
@@ -344,6 +356,9 @@ def build() -> bpy.types.NodeTree:
     SP = b.store(SP, "diameter", sp_d)
     SP = b.store(SP, "kind", 1.0)
     SP = b.store(SP, "age", 0.0)
+    # duplicates inherit the landed parent's imp=1: reset it or the impact
+    # sink floods with splash blobs that never collide (stamp below ground)
+    SP = b.store(SP, "imp", 0.0, "FLOAT")
 
     # --- splash update (ballistic) --------------------------------------------
     SJ = b.join(S0, SP)
@@ -412,6 +427,12 @@ def build() -> bpy.types.NodeTree:
     pv2 = b.node("GeometryNodePointsToVertices")
     b.links.new(spl, pv2.inputs["Points"])
     verts = b.join(pv1.outputs["Mesh"], pv2.outputs["Mesh"])
-    final = b.switch_geo(b.cmp("EQUAL", GI("Output Mode"), 0, "INT"), verts, rendered)
+    # impact-events sink: an invisible mesh of real vertices at every landing
+    # position (zero-area, renders nothing). Wetness helpers on colliders read
+    # it back via ObjectInfo on this emitter: the only Mesh component here.
+    impv = b.node("GeometryNodePointsToVertices")
+    b.links.new(b.separate(state_pts, b.cmp("GREATER_THAN", b.attr("imp", "FLOAT"), 0.5))[0], impv.inputs["Points"])
+    verts = b.join(verts, impv.outputs["Mesh"])
+    final = b.switch_geo(b.cmp("EQUAL", GI("Output Mode"), 0, "INT"), verts, b.join(rendered, impv.outputs["Mesh"]))
     b.links.new(final, go.inputs["Geometry"])
     return ng

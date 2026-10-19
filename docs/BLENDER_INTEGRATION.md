@@ -100,9 +100,50 @@ comment naming the release note.
 
 ## 7. Integration recipes
 
+- **Trying the rain quickly** (0.2.0): press *Add Weather Emitter* — a demo ground plane (RainFX Surface) and a Suzanne
+  (RainFX Suzanne) are seeded and joined to the collision set, so rain lands on real geometry the moment you press Play.
+  Both are idempotent by name; replace them with your own meshes via the Collision panel (select and use *Add Colliders*)
+  or just delete them.
 - **Rain only on part of a scene**: put just those objects in `RainFX Colliders`; everything else is ignored by the raycast.
 - **Roofs and umbrellas**: add the roof as a collider; drops that would hit it splash on top and the space below stays dry.
 - **Several weather volumes**: add several emitters; they share the colliders collection and node group but have separate modifier inputs and caches.
-- **Camera-following rain**: do not parent the emitter to the camera. Since 0.2.0, set the *Follow Object* field to the camera (and a Z *Follow Offset*, e.g. half the volume height, so the camera sits mid-column). Do not parent the emitter itself to a moving object; the legacy particle-system engine ignores Follow Object.
+- **Baking without downtime** (0.2.0): for long bakes on heavy scenes tick *Background bake* in the bake dialog —
+  the bake runs in a second headless Blender on the saved file (save first!) while you keep editing, and the panel
+  shows live per-frame progress. Packed bakes (cache inside the .blend) always bake in-process.
+- Camera-following rain: do not parent the emitter to the camera. Since 0.2.0, set the *Follow Object* field to the camera (and a Z *Follow Offset*, e.g. half the volume height, so the camera sits mid-column). Do not parent the emitter itself to a moving object; the legacy particle-system engine ignores Follow Object.
+- **Refraction close-ups**: enable *Refraction Drops* on the main panel for shots where the camera sits inside the
+  rain column. Drops get a fully refractive material (transmission 1.0, alpha 1.0) instead of translucent streaks;
+  pair it with *Shutter* 0 (Look panel) so drops render as spheres, and Higher *Quality* for the denser hero look.
 - **Moving colliders (vehicles, doors)**: animated colliders push splashes automatically since 0.2.0 — tune with the *Collider Push* slider on the Impact panel (0 restores the old static behaviour). The transfer is translation-only and bake-safe (it lives in the node group); changing the collider collection mid-simulation costs one step of velocity accuracy.
+- **Wet surfaces**: toggle *Wetness* in the Collision sub-panel (0.2.0). Colliders darken and gloss where drops actually land,
+  and low spots pool as lingering wet-puddle shading with a shimmering ripple bump animating across standing water
+  (fill is instant inside impact footprints, drying runs at a quarter of the Dry Rate) —
+  tune *Wet Radius* (footprint of one hit), *Strength*, and *Dry Rate* (0 keeps puddle-dark surfaces, higher dries between
+  bursts). A hidden "RainFX Impacts" helper object is refreshed per frame from the emitter; leave it hidden. The wet state
+  itself is bakeable (each collider's helper keeps its own simulation cache).
+- **Snow cover** (0.2.0): with the Wetness toggle on, snow presets accumulate flakes on up-facing surfaces — the
+  post-sim Set Position lifts verts along their normals by snow x *Snow Depth* (metres) and the surface brightens to snow white.
+  *Snow Rate* (snow units per second inside a flake footprint) lives on the helper modifier next to the wet controls; the hidden
+  "RainFX Snow Impacts" carrier pairs with the rain one. Snow is accumulation only — no melt, and lift follows vertex normals,
+  so subdividing the snowed faces gives the smoothest drifts.
+- **Wide establishing shots** (0.2.0): enable *Distant Rain* on the main panel — a static "RainFX Distant" layer fills the
+  far view with translucent streaks falling at the preset's own wind and terminal speed (wrapper at 3x reach / 2x height
+  around the emitter; counts = 0.5 x *Distant Density* x shelf volume). It re-applies with Apply like the fog, rides the
+  Follow Object, costs none of the sim budget, and its material is transmission-free so EEVEE stays cheap. Frees the real
+  simulation to stay sparse: drop *Quality* to ~0.3 and let the far layer carry the depth of the shot.
+- **Camera-through-the-rain hero shots** (0.2.0): enable *Lens Drops* on the main panel — the compositor gets a
+  droplet displacement stage (two procedurally generated drop maps with beads and drip streaks, drifted downward by
+  frame drivers and wrapped so the smear never repeats). Scale *Lens Strength* (0.1-3.0) with focal length; the stage
+  only ever attaches to the RainFX-built post chain, so scenes with their own compositing nodes stay untouched, and
+  *Post Processing* must stay enabled in the render settings for the effect to reach the frame.
+- **Audio-ready impact log** (0.2.0): press *Export Impact Events* in the Collision panel — the
+  addon replays the emitter's frame range and writes `rainfx_impact_events.json` (frame,
+  position, intensity = landing drop diameter in mm, type impact/snow, fps, preset and mean
+  terminal velocity in the header). Sound designers map events to impact layers (size →
+  loudness, snow → softer splat) directly in middleware; per frame at most 256 events are
+  kept via even stride sampling, and the replay matches bakes because it is the same
+  deterministic sim stepping frame by frame.
+- **Baking for farm renders**: Simulation → *Bake* with the scene frame range; *Packed cache* travels inside the
+  .blend (no sidecar folders to ship). Playback of baked frames equals the live simulation frame for frame, so
+  renders run without per-frame re-simulation.
 - **Cycles + volumes**: the fog cube is a bounded volume; for world-wide haze add a World Volume Scatter yourself.

@@ -62,4 +62,4 @@ extension validator. Run `tests/blender_smoke.py` and `tests/blender_scene_smoke
 
 ## License
 
-GPL-3.0-or-later (required for Blender extensions).
+GPL-3.0-or-later (required for Blender extensions) — full text in [`LICENSE`](LICENSE).

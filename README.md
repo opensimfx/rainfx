@@ -41,16 +41,11 @@ Full guide: `docs/USER_GUIDE.md`.
 
 | Document | Content |
 |---|---|
-| `docs/SYSTEM_DESIGN.md` | Architecture, data flow, simulation algorithm, decisions and trade-offs |
-| `docs/PROJECT_STRUCTURE.md` | Repository layout, module responsibilities, dependency rules |
-| `docs/PHYSICS.md` | Models, equations, sources, how real values become simulation inputs |
-| `docs/BLENDER_INTEGRATION.md` | Use of Geometry Nodes, particles, collision, force fields, fluid, rigid body, compositor, render engines; 5.x API changes |
+| `docs/SYSTEM_DESIGN.md` | Architecture, data flow, simulation algorithm, decisions and trade-offs; project structure; testing strategy |
+| `docs/PHYSICS.md` | Models, equations, sources, how real values become simulation inputs; research sources and reference analysis |
+| `docs/USER_GUIDE.md` | Workflow, render settings, baking, troubleshooting; Blender integration notes (Geometry Nodes, compositor, render engines, 5.x API changes) |
 | `docs/PRESETS.md` | Preset table (generated), schema, user presets |
-| `docs/USER_GUIDE.md` | Workflow, render settings, baking, troubleshooting |
-| `docs/REFERENCE_ANALYSIS.md` | What the two supplied reference files do and what RainFX changes |
-| `docs/TESTING.md` | Test strategy, what is verified and what is not |
 | `docs/ROADMAP.md` | Phased plan |
-| `docs/RESEARCH_SOURCES.md` | Sources consulted |
 
 ## Verification status (read this)
 
@@ -63,7 +58,7 @@ collision path work.
 (`modifier.properties.inputs.<id>.value`) follows the official release notes and is covered by a logic test with a
 stand-in object, not by Blender. Also not verified: rendered image quality (no GPU render was run) and Blender's
 extension validator. Run `tests/blender_smoke.py` and `tests/blender_scene_smoke.py` inside your 5.2.1 install first
-(`docs/TESTING.md`).
+(`docs/SYSTEM_DESIGN.md`, Testing).
 
 ## License
 

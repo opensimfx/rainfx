@@ -1,7 +1,7 @@
 """Blender version compatibility. Every API that changed between 4.2 and 5.2
 is wrapped here so the rest of the add-on never branches on version numbers.
 
-Changes handled (see docs/BLENDER_INTEGRATION.md):
+Changes handled (see docs/USER_GUIDE.md, Blender Integration):
 * 5.2  Geometry Nodes modifier inputs moved from ``modifier[identifier]`` custom
        properties to ``modifier.properties.inputs.<identifier>.value``.
 * 5.0  ``scene.node_tree`` removed -> ``scene.compositing_node_group``.

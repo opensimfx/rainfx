@@ -6,7 +6,7 @@ derived values shown in the Derived Physics panel.
 
 Confidence labels:
 
-- **cited**: confirmed in a web source fetched for this project (`RESEARCH_SOURCES.md`).
+- **cited**: confirmed in a web source fetched for this project (the Research Sources section below).
 - **textbook**: standard published constants entered from general knowledge; the sources fetched confirm the model exists but
   the exact constants were not re-read from them. Verify before relying on them for scientific work.
 - **modelled**: engineering approximation chosen by this project; tune against your own reference footage.
@@ -112,3 +112,124 @@ Agencies disagree on exact limits; these are starting points. Drizzle: drops und
 
 Drop oscillation and deformation, coalescence and breakup, collision between particles, evaporation, electrical
 effects of lightning on drop motion, temperature dependence of air density and viscosity (fixed at 15 C), altitude.
+
+
+---
+
+## Research Sources
+
+
+All pages below were retrieved through Firecrawl (search or scrape) while designing RainFX. "Used for" states exactly
+what was taken from each. Anything not listed here is general knowledge and is labelled "textbook" or "modelled" in `PHYSICS.md`.
+
+### Blender documentation and release notes
+
+| Source | Used for |
+|---|---|
+| https://developer.blender.org/docs/release_notes/5.2/ | Overview of 5.2 changes |
+| https://developer.blender.org/docs/release_notes/5.2/python_api/ | Geometry Nodes modifier inputs moved to `modifier.properties.inputs.<identifier>.value`; node socket identifier changes (Compare, Random Value) |
+| https://developer.blender.org/docs/release_notes/5.2/geometry_nodes/ | Geometry Nodes changes in 5.2; Geometry Nodes modifiers on empties |
+| https://developer.blender.org/docs/release_notes/5.2/physics/ | New experimental Geometry Nodes physics system (hair and cloth focus, Collider effector for closed meshes) |
+| https://developer.blender.org/docs/release_notes/5.0/python_api/ | Compositor as node group (`compositing_node_group`), EEVEE engine id, `use_nodes` deprecation, `bpy.props` storage change |
+| https://docs.blender.org/api/5.2/bpy.types.NodesModifier.html | `NodesModifier.properties` (read-only, may be `None`), `bakes`, `bake_directory`, `is_input_visible` |
+| https://docs.blender.org/manual/en/latest/physics/index.html | Map of physics systems (emitter particles, collision, force fields, fluid, rigid body, simulation nodes) in the 5.2 LTS manual |
+| https://docs.blender.org/manual/en/latest/physics/collision.html | Collision modifier settings for particles (permeability, stickiness, kill, damping, friction) |
+| https://docs.blender.org/manual/en/latest/physics/particles/emitter/physics/newtonian.html | Newtonian particle physics: drag, Brownian, damping, size, mass, integrators |
+| https://docs.blender.org/manual/en/latest/physics/simulation_nodes.html | Simulation nodes overview and baking |
+| https://docs.blender.org/manual/en/latest/modeling/geometry_nodes/simulation/simulation_zone.html | Simulation zone semantics: named attributes only, inputs evaluated once vs every step, Delta Time |
+| https://docs.blender.org/manual/en/latest/advanced/extensions/getting_started.html | Extension manifest schema 1.0.0, required fields, build and validate commands |
+
+The 5.2.1 manual and API pages were read as "latest" / "5.2". Blender 5.2.1 itself could not be run.
+
+### Physics
+
+| Source | Used for |
+|---|---|
+| https://journals.ametsoc.org/view/journals/atot/39/3/JTECH-D-21-0049.1.pdf (J. Atmos. Oceanic Technol. 39) | Gunn and Kinzer (1949) terminal-velocity data have a maximum drop size of 5.8 mm |
+| https://www.atmos.albany.edu/facstaff/rfovell/ATM562/gunn-marshall-1958.pdf | Marshall-Palmer intercept N0 = 8.0 x 10^3 m^-3 (per mm) for rain; Gunn and Kinzer terminal speeds |
+| https://hess.copernicus.org/articles/5/615/2001/hess-5-615-2001.pdf | Marshall-Palmer parameterisation remains a realistic average drop-size distribution |
+| https://www.nssl.noaa.gov/education/svrwx101/hail/ | Hail fall-speed bands: under 1 in 9-25 mph, 1-1.75 in 25-40 mph, 2-4 in 44-72 mph; natural hail slower than solid ice spheres |
+| MDPI Geosciences 10(12):500 (hail review; found via search, page not re-fetched for this file) | `v = 9 D^0.8` (D in cm) hail terminal velocity relation |
+| https://www.nachi.org/hail-damage-part4-31.htm | Counter-example: roofing source quotes about 50 mph for 1 in hail, much higher than NSSL; shows the spread in published hail speeds |
+| https://journals.ametsoc.org/view/journals/apme/45/10/jam2406.1.pdf (J. Appl. Meteor. Climatol. 45) | Wet-snow particles of 2.4 mm or more fall at about 2 m/s (standard deviation 0.8) |
+| https://tellusjournal.org/articles/10.16993/tellus.4127 | Large aggregate snowflakes with terminal velocities up to 1.5 m/s |
+| https://www.opticalscientific.com/feeds/blog/standard-unit-rainfall-precipitation-wmo | WMO rain intensity categories: light 2.5 mm/h or less, moderate 2.6-7.5, heavy 7.6 or more, violent over 50 |
+| https://community.wmo.int/site/knowledge-hub/programmes-and-initiatives/aviation/aviation-hazards-precipitation | Showers classed violent above 50 mm/h |
+
+### Not sourced (entered from general knowledge)
+
+- Marshall-Palmer slope `L = 4.1 R^-0.21`.
+- Atlas et al. fit `v = 9.65 - 10.3 exp(-0.6 D)` and the Gunn-Kinzer reference values used in unit tests.
+- Stokes law, air viscosity and density constants.
+- All "modelled" items (gusts, splash, bounce, snow speed formula, hail drag factor 0.85).
+
+### Web search availability
+
+Firecrawl enforced a per-minute request limit during research; some scrapes were retried. Search results are excerpts; pages
+were not read in full unless listed under Blender documentation above.
+
+
+---
+
+## Reference Analysis
+
+
+Two files were supplied as references. Both were written in Blender 3.6 (file version 306) and were opened read-only in
+headless Blender 5.0.1 for this analysis. Node counts and sockets below are read from the files; statements about intent are
+marked as inferences where the graph was not traced node by node.
+
+### 1. `rain_generator.blend`
+
+| Object / node group | Nodes | Key nodes | Inputs |
+|---|---|---|---|
+| Rain Zone | 67 | Simulation Input, Instance on Points, Delete Geometry x2, Object Info, Random Value x3, Set Position x5 | Amount, Scale, Fall Speed, Instance (object), Size X/Y/Z, Tilt X, Tilt Y, Outline |
+| Rain Splash | 37 | Simulation Input, Distribute Points on Faces, Duplicate Elements, Capture Attribute, Delete Geometry, Random Value x2, Set Position | Geometry (ground), Density, Vertex Group, Z Limit, Drops/Splash, Power, Speed, Radius, Material |
+| Droplet | 5 | (mesh generator) | Length, Radius |
+
+Reading: a box of simulated points falls at a user-set speed with a tilt, is instanced as a droplet object, and is deleted
+or recycled by a height limit. Splashes are generated by distributing points on the *ground surface* and duplicating them with random velocity.
+There is no Raycast, Proximity or Sample Nearest Surface node, so drops do not detect objects; the ground is a Z limit and a splash source surface.
+
+### 2. `dynamic_rain_addon_1_0_0.zip` (38 MB)
+
+Package contents: `__init__.py` (145 lines, generated-add-on style with `sna_` / `SNA_PT_` names), `assets/Dynamic Rain.blend`, one PNG.
+
+| Item | Observation |
+|---|---|
+| Packaging | Legacy `bl_info` add-on, Blender 3.6.0, version 1.0.0. The add-on appends the object `Raindrop` from the bundled blend with `bpy.ops.wm.append` |
+| Panel code | Reads `bpy.data.objects['Raindrop'].modifiers['几何节点']` (the Chinese UI name of the Geometry Nodes modifier) and exposes inputs by identifier: `["Input_10"]`, `["Input_2"]`, `["Input_3"]`, `["Input_5"]` |
+| Node group `Dynamic Rain` | 107 nodes: Simulation Input, Proximity x2, Sample Nearest Surface x3, Distribute Points on Faces, Instance on Points x2, Delete Geometry x3, Collection Info x2, Points to Volume, Mesh to Volume, Volume to Mesh, Noise Texture, Random Value x2, Set Position x4 |
+| Inputs | X size, Y size, Rain Density, Rain Height, Raindrop acceleration, sputtering ratio, Raindrop length, raindrop size, water raindrop size, Raindrop disappearing height |
+| Node group `删除几何体内点` | "Delete points inside geometry": 12 nodes, Sample Nearest Surface x2 + Delete Geometry |
+| Scene | Cube, Raindrop, an umbrella empty with umbrella parts as materials |
+
+Reading: collision is implemented as *point inside geometry* removal using nearest-surface sampling (the umbrella demo),
+plus Proximity for splash placement. The volume nodes (Points to Volume -> Volume to Mesh) likely build a blobby water
+surface (inference). "Raindrop acceleration" suggests constant acceleration rather than drag-limited terminal speed (inference from the input name).
+
+### 3. What RainFX keeps, changes and fixes
+
+| Topic | References | RainFX |
+|---|---|---|
+| Solver | Simulation zone in a box with respawn | Same idea, kept |
+| Instancing | Instance on points aligned to velocity | Kept; streak length now comes from speed x shutter |
+| Collision | Z limit / point-inside deletion / proximity | Raycast along each step: stops fast drops at thin surfaces, gives a hit position and normal for splash and bounce |
+| Splash origin | Ground surface samples (rain generator) | Actual impact points of simulated drops |
+| Drop physics | User-set fall speed or acceleration, constant sizes | Marshall-Palmer size distribution, Gunn-Kinzer terminal speed, drag relaxation, wind coupling |
+| Weather range | One rain look | 14 presets: dew, drizzle to downpour, wind-driven, thunderstorm, freezing rain, sleet, hail (bounce), snow, blizzard |
+| Distribution | 38 MB zip with appended blend | Node groups built from code (`gn/precip.py`); package is about 30 KB |
+| Input access | `["Input_N"]` identifiers, hard-coded object and localized modifier names | Socket *names* through `compat.set_modifier_input`; emitter found by custom property; works with the 5.2 `properties.inputs` API |
+| Blender versions | 3.6 | 5.0+ (tested 5.0.1, targeting 5.2.1) |
+| Atmosphere | none in the add-on | Fog volume, sky and sun dimming, lightning, compositor glow |
+
+#### Compatibility warning for the reference add-on
+
+The `["Input_10"]` style custom-property access is the exact pattern replaced by `modifier.properties.inputs.<identifier>.value`
+in Blender 5.2, and `bl_info`-only add-ons targeting 3.6 will need conversion to an extension manifest for the 5.x extensions
+workflow. The reference add-on should not be expected to work unchanged in 5.2.1.
+
+#### Assets worth reusing
+
+The umbrella scene in `Dynamic Rain.blend` is a good collision acceptance test: drops must stay off the umbrella and ground
+splashes must appear only where drops actually land. The RainFX test world uses a 2 m cube for the same purpose
+(`tests/blender_smoke.py`). Copying meshes or materials from the reference files into a released add-on requires checking their license first; none was included in the archive.

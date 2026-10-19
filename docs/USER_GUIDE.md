@@ -66,7 +66,7 @@ A baked simulation is the only reliable way to get identical frames across rende
 
 | Topic | Advice |
 |---|---|
-| Motion blur | Streak length already represents the shutter. Turn renderer motion blur off or accept double blur |
+| Motion blur | Streak length already represents the shutter. Renderer motion blur cannot paint real trails — sim zones step whole frames, so every shutter sample sees identical geometry; best off to avoid double blur on colliders |
 | Visual Scale | Increase for wide shots (drops are sub-pixel), reduce for close-ups |
 | Fog | The fog cube must enclose the camera view; in EEVEE check volumetric resolution and end distance |
 | Lights | Rain is nearly invisible without a light behind it. Rim or back lights and bright backgrounds reveal streaks. Street lamps in a dark scene are the classic setup |
@@ -179,7 +179,7 @@ materials from `velocity`, or compute wetness from where `kind == 1` splashes oc
 - **EEVEE / Cycles.** The materials are plain Principled BSDF graphs and work in both. Water and splash materials use `surface_render_method = 'BLENDED'` for alpha streaks.
 - **Fog.** A cube with a Volume Scatter material (Density from the preset, Anisotropy 0.3). Renders as a volume in both engines. In EEVEE, volumetric resolution and the clip distance must cover the cube.
 - **Lightning.** An area light keyframed with constant interpolation. Increase `Energy` for large scenes; the value is in watts and depends on distance.
-- **Motion blur.** Streaks already include the shutter blur. Turn renderer motion blur off or expect double blur (documented in PHYSICS.md section 5).
+- **Motion blur.** Streaks already include the shutter blur, and renderer motion blur cannot add real trails: simulation zones step whole frames, so shutter samples see identical geometry (verified in Blender 5.2.1 — identical renders with blur on/off in both Cycles and EEVEE; noted in PHYSICS.md section 5).
 - **Not render-tested.** No image was rendered while building v0.1; tune the materials in your scene.
 
 ### 4. Compositor

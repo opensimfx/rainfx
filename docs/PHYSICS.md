@@ -98,6 +98,8 @@ Gusts (modelled): `3-D noise(pos / L + (v_g t, 0.37 v_g t, 0)) - 0.5`, scaled by
 A camera exposes for a shutter time `T`; a drop moving at `v` leaves a streak of length `v T`.
 Default `T = 1/48 s` (180 degree shutter at 24 fps) gives 0.08 m for a 3.8 m/s drop and 0.19 m for a 9 m/s drop. The mesh is stretched
 by exactly this length, which is why renderer motion blur should be off for the drops (double blur otherwise).
+Renderer motion blur cannot paint real trails instead: simulation zones step only at whole frame boundaries,
+so every shutter subframe sample sees identical geometry and the blur is a no-op for the particles (verified in Blender 5.2.1: identical Cycles and EEVEE renders with motion blur on and off).
 
 True drop width (0.5-5 mm) is sub-pixel at normal distances, so width is multiplied by `Visual Scale` (3-5 in presets).
 True concentration is two orders of magnitude above what can be simulated interactively (`SYSTEM_DESIGN.md` section 5).

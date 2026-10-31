@@ -3,6 +3,12 @@
 **Physically based weather for Blender** — part of [OpenSimFX](https://github.com/opensimfx),
 alongside BlastFX, FlowFX and AtmosFX.
 
+![Light rain](docs/previews/light_rain.png)
+![Heavy rain](docs/previews/heavy_rain.png)
+![Snow](docs/previews/heavy_snow.png)
+
+_Renders: headless Cycles (`tools/render_preview.py`). They are validation checks, not showpieces._
+
 RainFX brings physically based weather to Blender — dew, drizzle through downpour, wind-driven rain, thunderstorm, freezing rain, sleet, hail and snow. Drops are simulated with Geometry Nodes simulation zones and collide with your scene geometry through raycasts.
 
 ## Features
@@ -65,9 +71,30 @@ rainfx/                 the add-on (what gets zipped)
   data/presets.json     the shipped preset library (generated)
   engine_particles/     stock particle-system engine (fallback)
 tests/                  pytest suites + headless Blender checks
-tools/                  build_extension, gen_presets
+tools/                  build_extension, gen_presets, render_preview
 docs/                   SYSTEM_DESIGN, PHYSICS, USER_GUIDE, PRESETS, ROADMAP, TESTING
 ```
+
+## Generate Previews
+
+```bash
+# Requires desktop Blender 5.0+ (Geometry Nodes simulation zones)
+# Usage: /Applications/Blender.app/Contents/MacOS/Blender -b --factory-startup \
+#        --python tools/render_preview.py -- <preset> <output.png> [samples]
+
+/Applications/Blender.app/Contents/MacOS/Blender -b --factory-startup \
+    --python tools/render_preview.py -- light_rain docs/previews/light_rain.png 64
+
+/Applications/Blender.app/Contents/MacOS/Blender -b --factory-startup \
+    --python tools/render_preview.py -- heavy_rain docs/previews/heavy_rain.png 64
+
+/Applications/Blender.app/Contents/MacOS/Blender -b --factory-startup \
+    --python tools/render_preview.py -- heavy_snow docs/previews/heavy_snow.png 64
+```
+
+Presets: `dew`, `drizzle`, `light_rain`, `moderate_rain`, `heavy_rain`, `downpour`,
+`wind_driven_rain`, `thunderstorm`, `freezing_rain`, `sleet`, `hailstorm`,
+`light_snow`, `heavy_snow`, `blizzard`
 
 ## Develop
 

@@ -2,6 +2,13 @@
 
 ## 0.2.0 (unreleased)
 
+- UI follows the shared OpenSimFX conventions (`docs/UI_STYLE.md`, identical in all four add-ons):
+  the main panel holds the preset (with a wrapped description) and a large *Add Weather Emitter*;
+  rain controls move to a *Rain* sub-panel; the bake controls formerly under *Simulation* /
+  *Engines* are now *Cache and Bake* (progress bar, *Delete Sim Cache* separated at the bottom);
+  *Derived Physics* is now *Readout*; *Run Diagnostics* has its own *Diagnostics* panel. Every
+  panel uses Blender's label-left property layout. No properties or operators changed.
+
 - Background baking: *Bake* in the Engines panel gains a *Background bake* option that runs the
   disk bake in a second headless Blender process while you keep working, with live progress
   ("6/10 frames (60%)") drawn in the panel from the per-frame cache files; the cache is written

@@ -29,7 +29,7 @@ RainFX brings physically based weather to Blender — dew, drizzle through downp
 Requires Blender **5.2.1** (target; supports Blender 5.0+).
 
 ```bash
-python tools/build_extension.py        # -> dist/rainfx-0.2.0.zip
+python tools/build_extension.py        # -> dist/rainfx-0.3.0.zip
 ```
 
 In Blender: *Edit > Preferences > Get Extensions > (v) > Install from Disk...*, pick the zip. The panel appears in the 3D Viewport sidebar (**N**) under **RainFX**.

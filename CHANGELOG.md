@@ -1,9 +1,14 @@
 # Changelog
 
-## Unreleased (0.2.0)
+## Unreleased
 
-- Research-process notes and the analysis of third-party rain add-ons moved out of `docs/REFERENCES.md` into a
-  local, ignored `private/` folder; the published references keep the scientific and Blender sources.
+- Nothing yet.
+
+## 0.3.0-beta.1 (2026-11-16)
+
+Everything since 0.1.0; the 0.2.0 public betas (up to `v-0.2.0-beta3`) were cut from this work.
+
+- `docs/REFERENCES.md` keeps the scientific and Blender sources; working research notes are no longer published.
 - Repository layout shared by the four OpenSimFX add-ons (CONTRIBUTING.md, Repository conventions): new
   `CONTRIBUTING.md` and `docs/DEVELOPMENT.md` (testing, build and release, moved out of `docs/SYSTEM_DESIGN.md`),
   README renders in `docs/img/` (new renders), project metadata in `pyproject.toml`, add-on icon in the README.

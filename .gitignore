@@ -1,17 +1,28 @@
-# macOS
-.DS_Store
-
 # Python
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.venv/
+venv*/
 
-# Build artifacts
-dist/
-rainfx-0.1.0-extension/
+# OS and editors
+.DS_Store
+._*
+.idea/
+.vscode/
 
-# Blender backup files
+# Blender backups
 *.blend1
+*.blend2
 
-# Agent task tracking (local only)
+# Build output (release zips go on GitHub Releases)
+dist/
+
+# RainFX build leftovers and local notes
+rainfx-*-extension/
 tasks/
+
+# Local notes that are never published (research material, competitor analysis, dev leftovers)
+private/

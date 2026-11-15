@@ -56,10 +56,12 @@ def sky_world():
     sky.sun_elevation = 0.35
     sky.sun_rotation = 2.2
     tree.links.new(sky.outputs[0], bg.inputs[0])
+    # Overcast: a dim sky so the drops read against it (a bright clear sky hid them).
+    bg.inputs[1].default_value = 0.12
     tree.links.new(bg.outputs[0], out.inputs[0])
 
 
-def sun_lamp(strength=3.0):
+def sun_lamp(strength=0.6):
     data = bpy.data.lights.new("RainFX Sun", "SUN")
     data.energy = strength
     data.angle = 0.02
@@ -72,7 +74,7 @@ def sun_lamp(strength=3.0):
 def ground(size=50.0):
     mesh = bpy.data.meshes.new("RainFX Ground")
     mesh.from_pydata(
-        [(-size, -size, 0), (size, -size, 0), (size, size, 0), (-size, size, 0)],
+        [(-size, -size, -0.02), (size, -size, -0.02), (size, size, -0.02), (-size, size, -0.02)],
         [], [(0, 1, 2, 3)]
     )
     mesh.update()
@@ -81,44 +83,43 @@ def ground(size=50.0):
     mat = bpy.data.materials.new("RainFX Ground")
     mat.use_nodes = True
     bsdf = mat.node_tree.nodes["Principled BSDF"]
-    bsdf.inputs["Base Color"].default_value = (0.15, 0.12, 0.10, 1.0)
-    bsdf.inputs["Roughness"].default_value = 0.85
-    obj.data.materials.append(obj.data.materials.append(mat))
+    bsdf.inputs["Base Color"].default_value = (0.03, 0.03, 0.032, 1.0)
+    bsdf.inputs["Roughness"].default_value = 0.35  # wet
+    obj.data.materials.append(mat)
     return obj
 
 
-def camera_to(obj, elevation=0.35, distance_factor=1.2):
-    """Frame the camera on the evaluated bbox of `obj` from a three-quarter view."""
-    dg = bpy.context.evaluated_depsgraph_get()
-    ev = obj.evaluated_get(dg)
-    mesh = ev.to_mesh()
-    co = np.empty(len(mesh.vertices) * 3)
-    mesh.vertices.foreach_get("co", co)
-    ev.to_mesh_clear()
-    co = co.reshape(-1, 3)
-    lo, hi = co.min(axis=0), co.max(axis=0)
-    center = (lo + hi) / 2
-    size = float(np.linalg.norm(hi - lo))
+def camera_in_volume(emitter, box):
+    """A shot from inside the rain: eye height near the volume's front edge, looking across it.
+
+    Placed from the Volume setting (X, Y, height around the emitter), not from the
+    emitter's evaluated geometry, which is empty before the simulation runs, and
+    from inside the box rather than outside it, the way rain is filmed.
+    """
+    sx, sy, _sz = (float(v) for v in box)
+    origin = Vector(emitter.location)
     data = bpy.data.cameras.new("RainFX Camera")
+    data.lens = 35
     cam = bpy.data.objects.new("RainFX Camera", data)
     bpy.context.scene.collection.objects.link(cam)
-    d = max(size * distance_factor, 15.0)
-    cam.location = center + np.array([-d * 0.6, -d * 0.8, d * elevation])
-    direction = center - cam.location
-    cam.rotation_euler = Vector(direction).to_track_quat("-Z", "Y").to_euler()
+    cam.location = origin + Vector((-0.25 * sx, -0.42 * sy, 1.7))
+    target = origin + Vector((0.1 * sx, 0.3 * sy, 1.2))
+    cam.rotation_euler = (target - cam.location).to_track_quat("-Z", "Y").to_euler()
     bpy.context.scene.camera = cam
     return cam
 
 
 def main(argv):
     preset_id = argv[0] if argv else "moderate_rain"
-    out = Path(argv[1]) if len(argv) > 1 else ROOT / "docs" / "previews" / f"{preset_id}.png"
+    out = Path(argv[1]) if len(argv) > 1 else ROOT / "docs" / "img" / f"{preset_id}.png"
     samples = int(argv[2]) if len(argv) > 2 else 64
 
     rainfx = load_package()
     rainfx.register()
-    from rainfx.presets.apply import apply_preset
-    from rainfx.data.presets import get_preset
+    from rainfx.scene.emitter import all_presets
+
+    if preset_id not in all_presets():
+        raise SystemExit(f"Unknown preset: {preset_id}")
 
     clear_scene()
     scene = bpy.context.scene
@@ -133,26 +134,26 @@ def main(argv):
     scene.frame_start, scene.frame_end = 1, 60
     bpy.context.preferences.filepaths.use_relative_paths = False
 
-    preset = get_preset(preset_id)
-    if not preset:
-        raise SystemExit(f"Unknown preset: {preset_id}")
-
-    # Create weather emitter
-    bpy.ops.rainfx.emitter_add(preset_id=preset_id)
+    # The emitter comes with the add-on's demo ground and monkey as colliders,
+    # so drops land and splash; the wide ground below is only the horizon.
+    scene.rainfx.preset = preset_id
+    bpy.ops.rainfx.add_emitter()
     emitter = bpy.context.active_object
+    ground()
+    demo = bpy.data.materials.get("RainFX Demo")  # the demo ground and monkey: dark, wet-looking
+    if demo is not None and demo.use_nodes:
+        bsdf = demo.node_tree.nodes.get("Principled BSDF")
+        if bsdf is not None:
+            bsdf.inputs["Base Color"].default_value = (0.05, 0.05, 0.055, 1.0)
+            bsdf.inputs["Roughness"].default_value = 0.3
 
-    # Add some ground as collider
-    ground_obj = ground()
-    bpy.ops.rainfx.collider_add_selected()
-
-    # Setup render
     sky_world()
     sun_lamp()
-    camera_to(emitter, elevation=0.30, distance_factor=1.5)
+    camera_in_volume(emitter, scene.rainfx.box)
 
-    # Simulate to fill volume - bake to frame 30
-    scene.frame_set(30)
-    bpy.ops.rainfx.bake()
+    # Fill the volume: a packed bake (no saved .blend needed) up to the render frame.
+    scene.frame_set(1)
+    bpy.ops.rainfx.bake(packed=True, frame_start=1, frame_end=40)
 
     # Render at a frame with steady rain
     scene.frame_set(40)

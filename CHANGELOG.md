@@ -1,7 +1,17 @@
 # Changelog
 
-## 0.2.0 (unreleased)
+## Unreleased (0.2.0)
 
+- Research-process notes and the analysis of third-party rain add-ons moved out of `docs/REFERENCES.md` into a
+  local, ignored `private/` folder; the published references keep the scientific and Blender sources.
+- Repository layout shared by the four OpenSimFX add-ons (CONTRIBUTING.md, Repository conventions): new
+  `CONTRIBUTING.md` and `docs/DEVELOPMENT.md` (testing, build and release, moved out of `docs/SYSTEM_DESIGN.md`),
+  README renders in `docs/img/` (new renders), project metadata in `pyproject.toml`, add-on icon in the README.
+  The same nine docs as every add-on: measured results, unverified items and the 5.2.1 checklist moved to the new
+  `docs/VALIDATION.md`; research sources and the reference-add-on analysis to the new `docs/REFERENCES.md`.
+- Fix: `tools/render_preview.py` placed its camera from the emitter's evaluated geometry, which is empty before
+  the simulation runs, and outside the rain volume; it now stands inside the volume at eye height (from the
+  Volume setting) and looks across it. Its ground no longer gets an empty material slot.
 - UI follows the shared OpenSimFX conventions (`docs/UI_STYLE.md`, identical in all four add-ons):
   the main panel holds the preset (with a wrapped description) and a large *Add Weather Emitter*;
   rain controls move to a *Rain* sub-panel; the bake controls formerly under *Simulation* /

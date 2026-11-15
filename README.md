@@ -1,13 +1,16 @@
-# RainFX
+<h1><img src=".github/logo.png" alt="RainFX logo" width="64" height="64" align="absmiddle">&nbsp;RainFX</h1>
 
 **Physically based weather for Blender** — part of [OpenSimFX](https://github.com/opensimfx),
 alongside BlastFX, FlowFX and AtmosFX.
 
-![Light rain](docs/previews/light_rain.png)
-![Heavy rain](docs/previews/heavy_rain.png)
-![Snow](docs/previews/heavy_snow.png)
+![Light rain](docs/img/light_rain.png)
 
-_Renders: headless Cycles (`tools/render_preview.py`). They are validation checks, not showpieces._
+| | |
+|---|---|
+| ![Heavy rain](docs/img/heavy_rain.png) | ![Heavy snow](docs/img/heavy_snow.png) |
+
+_Renders: desktop Blender 5.2, Cycles, 64 samples (`tools/render_preview.py`). They are validation checks, not
+showpieces._
 
 RainFX brings physically based weather to Blender — dew, drizzle through downpour, wind-driven rain, thunderstorm, freezing rain, sleet, hail and snow. Drops are simulated with Geometry Nodes simulation zones and collide with your scene geometry through raycasts.
 
@@ -29,7 +32,7 @@ Requires Blender **5.2.1** (target; supports Blender 5.0+).
 python tools/build_extension.py        # -> dist/rainfx-0.2.0.zip
 ```
 
-In Blender: *Edit > Preferences > Get Extensions > Install from Disk…*, pick the zip. The panel appears in the 3D Viewport sidebar (**N**) under **RainFX**.
+In Blender: *Edit > Preferences > Get Extensions > (v) > Install from Disk...*, pick the zip. The panel appears in the 3D Viewport sidebar (**N**) under **RainFX**.
 
 For development, run Blender with the package folder symlinked into your extension repository, or use `blender --command extension build --source-dir rainfx`.
 
@@ -41,81 +44,69 @@ For development, run Blender with the package folder symlinked into your extensi
 4. Start playback from the scene start frame. Rain needs roughly 2 s to fill the volume; start the timeline early or bake (RainFX panel → *Simulation → Bake*).
 5. Render with EEVEE or Cycles. Streaks are already motion-blurred; disable renderer motion blur for the drops.
 
-Full guide: `docs/USER_GUIDE.md`.
+Full walkthrough: [docs/USER_GUIDE.md](docs/USER_GUIDE.md).
 
 ## Verification status (read this)
 
 Verified in **headless Blender 5.0.1 (`bpy` wheel)**:
 
-- Simulation passes physical assertions: no particle crosses the floor or a 2 m test cube, hail bounces, rain splashes, a control run without colliders fails the same check.
+- Simulation passes physical assertions: no particle crosses the floor or a 2 m test cube, hail bounces, rain
+  splashes, a control run without colliders fails the same check.
 - Every preset runs, operators and live preset switching work.
 - Fog, lightning keyframes, compositor and the particle-engine collision path work.
 
-**Not verified** — treat as unknown:
+Verified in **desktop Blender 5.2.3 LTS, macOS arm64**:
 
-- Runtime behaviour in Blender 5.2.1 itself (no 5.2 build was available at time of verification). The 5.2 modifier input path (`modifier.properties.inputs.<id>.value`) follows the official release notes and is covered by a logic test with a stand-in object, not by Blender.
-- Rendered image quality (no GPU render was run).
-- Blender's extension validator.
-- Blender versions other than 5.0.1 and 5.2.1; Windows; GPU Cycles; EEVEE on CI or a machine without a GPU/display.
+- The built zip passes Blender's extension validator and installs, enables and adds a weather emitter in a clean
+  profile; every panel draws and references only registered properties and operators.
+- The README renders above come from `tools/render_preview.py` in this version.
 
-Run `tests/blender_smoke.py` and `tests/blender_scene_smoke.py` inside your 5.2.1 install first (`docs/SYSTEM_DESIGN.md`, Testing).
+**Not verified** - treat as unknown:
+
+- The full simulation test suite inside Blender 5.2 (the physical assertions above ran on 5.0.1). The 5.2 modifier
+  input path (`modifier.properties.inputs.<id>.value`) follows the official release notes and is covered by a logic
+  test with a stand-in object.
+- Blender versions other than 5.0.1 and 5.2.3; Windows; GPU Cycles; EEVEE on CI or a machine without a GPU/display.
+
+Run `tests/blender_smoke.py` and `tests/blender_scene_smoke.py` inside your Blender first
+([docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)).
 
 ## Repository layout
 
 ```
-rainfx/                 the add-on (what gets zipped)
-  core/                 pure Python: physics, presets, schema, wind, collision
-  nodes/                node-group builders (emitters, splash, fog, lightning)
-  scene/                world, domain objects, render settings, orchestration
-  ui/                   properties, operators, panels, preset conversion
+rainfx/                 the add-on (this folder is what the extension zip contains)
+  core/                 pure Python, no bpy: physics, presets, schema
+  gn/                   Geometry Nodes builders: precipitation simulation, dew, materials
+  scene/                emitters, colliders, atmosphere, lighting, compositor, particle engine
+  ui/                   properties, operators, panels
   data/presets.json     the shipped preset library (generated)
-  engine_particles/     stock particle-system engine (fallback)
+  compat.py             every Blender-version-dependent API access
+docs/                   user guide, presets, physics, system design, development, validation, references, roadmap, UI style
 tests/                  pytest suites + headless Blender checks
-tools/                  build_extension, gen_presets, render_preview
-docs/                   SYSTEM_DESIGN, PHYSICS, USER_GUIDE, PRESETS, ROADMAP, TESTING
+tools/                  build_extension, gen_presets, gen_preset_docs, render_preview
 ```
-
-## Generate Previews
-
-```bash
-# Requires desktop Blender 5.0+ (Geometry Nodes simulation zones)
-# Usage: /Applications/Blender.app/Contents/MacOS/Blender -b --factory-startup \
-#        --python tools/render_preview.py -- <preset> <output.png> [samples]
-
-/Applications/Blender.app/Contents/MacOS/Blender -b --factory-startup \
-    --python tools/render_preview.py -- light_rain docs/previews/light_rain.png 64
-
-/Applications/Blender.app/Contents/MacOS/Blender -b --factory-startup \
-    --python tools/render_preview.py -- heavy_rain docs/previews/heavy_rain.png 64
-
-/Applications/Blender.app/Contents/MacOS/Blender -b --factory-startup \
-    --python tools/render_preview.py -- heavy_snow docs/previews/heavy_snow.png 64
-```
-
-Presets: `dew`, `drizzle`, `light_rain`, `moderate_rain`, `heavy_rain`, `downpour`,
-`wind_driven_rain`, `thunderstorm`, `freezing_rain`, `sleet`, `hailstorm`,
-`light_snow`, `heavy_snow`, `blizzard`
 
 ## Develop
 
 ```bash
-# Pure tests (no Blender)
-python -m pytest
-
-# Headless Blender checks (needs bpy 5.0.1)
-python tests/blender_smoke.py             # 23 checks, ~20 s
-ATMOSFX_RENDER_TESTS=1 python tests/blender_smoke.py   # + render checks (if bpy supports)
-
-# Build the extension zip
-python tools/build_extension.py
+python -m pytest                          # pure tests, no Blender
+python tests/blender_smoke.py             # needs bpy: simulation behaviour checks
+python tests/blender_scene_smoke.py       # needs bpy: scene helpers
+python tools/gen_presets.py               # regenerate data/presets.json from the table in the tool
+python tools/gen_preset_docs.py           # regenerate docs/PRESETS.md
+/Applications/Blender.app/Contents/MacOS/Blender -b --factory-startup \
+    --python tools/render_preview.py -- light_rain docs/img/light_rain.png 64      # README renders
+python tools/build_extension.py           # dist/rainfx-<version>.zip
 ```
 
-See `docs/SYSTEM_DESIGN.md` for architecture, data flow, simulation algorithm, decisions and trade-offs; project structure; testing strategy.
+See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) and [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Documentation
 
-[User Guide](docs/USER_GUIDE.md) · [Physics](docs/PHYSICS.md) · [System Design](docs/SYSTEM_DESIGN.md) · [Presets](docs/PRESETS.md) · [Roadmap](docs/ROADMAP.md)
+[User guide](docs/USER_GUIDE.md) · [Presets](docs/PRESETS.md) · [Physics](docs/PHYSICS.md) ·
+[System design](docs/SYSTEM_DESIGN.md) · [Development](docs/DEVELOPMENT.md) · [Validation](docs/VALIDATION.md) ·
+[References](docs/REFERENCES.md) · [Roadmap](docs/ROADMAP.md) · [UI style](docs/UI_STYLE.md) · [Changelog](CHANGELOG.md)
 
 ## License
 
-GPL-3.0-or-later (required for Blender extensions) — full text in [`LICENSE`](LICENSE).
+GPL-3.0-or-later — see [LICENSE](LICENSE).

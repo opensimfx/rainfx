@@ -35,7 +35,7 @@ def main():
         mon = bpy.data.objects.get("RainFX Suzanne")
         assert surf is not None and mon is not None, "demo objects missing"
         assert surf.type == mon.type == "MESH"
-        assert len(surf.data.vertices) == 4 and len(mon.data.vertices) > 100
+        assert len(surf.data.vertices) == 65 * 65 and len(mon.data.vertices) > 100   # 64 x 64 demo grid
         cd = em.colliders_collection(sc)
         assert "RainFX Surface" in cd.objects and "RainFX Suzanne" in cd.objects
         for o in (surf, mon):

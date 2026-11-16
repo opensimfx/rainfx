@@ -42,8 +42,8 @@ def test_atmosphere_and_revert():
     atmosphere.revert_lighting(sc)
     assert abs(bg.inputs["Strength"].default_value - 1.0) < 1e-6 and abs(sun.data.energy - 4.0) < 1e-6
     fog = atmosphere.create_fog(sc, density=0.02)
-    vol = next(n for n in fog.data.materials[0].node_tree.nodes if n.type == "VOLUME_SCATTER")
-    assert abs(vol.inputs["Density"].default_value - 0.02) < 1e-6
+    assert abs(atmosphere.fog_density(fog) - 0.02) < 1e-6
+    assert min(v.co.z for v in fog.data.vertices) < 0, "fog box bottom must sit below the ground"
 
 
 def test_lightning_keys():

@@ -142,6 +142,19 @@ def main():
         f"far layer leaks into the emitter mesh ({n_on}/{n_off}, {m_on} vs {m_off})"
     print(f"[Safety] emitter mesh unchanged ({n_on} verts, {len(m_on)} mats)")
 
+    # [World size] the shelf spans its Box Size in WORLD space (0.3 double-scaled it)
+    dist.refresh(scene, True, ob=et, box=(16, 16, 10), density=0.02, seed=3)
+    lay = bpy.data.objects["RainFX Distant"]
+    bpy.context.view_layer.update()
+    dg = bpy.context.evaluated_depsgraph_get()
+    le = lay.evaluated_get(dg)
+    lme = le.to_mesh()
+    wx = [(le.matrix_world @ v.co).x - et.location.x for v in lme.vertices]
+    le.to_mesh_clear()
+    assert wx and max(abs(min(wx)), abs(max(wx))) < 0.5 * 48.0 + 1.0, \
+        f"far shelf is {min(wx):.0f}..{max(wx):.0f} m wide in world space, expected +-24 m"
+    print(f"[World size] far shelf spans {min(wx):.1f}..{max(wx):.1f} m around the emitter")
+
     # [Follow] the layer rides its parent like the fog does
     fake = bpy.data.objects.new("FollowPoint", None)
     scene.collection.objects.link(fake)

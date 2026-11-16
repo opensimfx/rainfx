@@ -66,6 +66,14 @@ class RAINFX_PT_rain(_Base, bpy.types.Panel):
         col.prop(s, "distant_rain")
         if s.distant_rain:
             col.prop(s, "distant_density")
+        col.prop(s, "foreground_rain")
+        if s.foreground_rain:
+            col.prop(s, "foreground_density")
+            if context.scene.camera is None:
+                col.label(text="Needs an active camera", icon="INFO")
+        col.prop(s, "drips")
+        if s.drips:
+            col.prop(s, "drip_density")
         col.prop(s, "lens_drops")
         if s.lens_drops:
             col.prop(s, "lens_strength")
@@ -93,6 +101,19 @@ class RAINFX_PT_collision(_Base, bpy.types.Panel):
         s = context.scene.rainfx
         lo.prop(s, "wetness")  # wetness needs an emitter in the scene
         if s.wetness:
+            coarse = list(context.scene.get("rainfx_coarse_colliders", []))
+            if coarse:
+                box = lo.box().column(align=True)
+                box.label(text="Too coarse for wetness detail:", icon="ERROR")
+                for name in coarse[:4]:
+                    box.label(text=name, icon="MESH_DATA")
+                if len(coarse) > 4:
+                    box.label(text=f"... and {len(coarse) - 4} more")
+                box.label(text="Subdivide them (vertices about every Wet Radius)")
+            col = lo.column(align=True)
+            p = em.all_presets().get(s.preset)
+            col.prop(s, "wet_start", text="Already Snowy" if p is not None and p.mode == "snow" else "Already Wet")
+            col.prop(s, "puddles")
             col = lo.column(align=True)
             col.prop(s, "wet_radius")
             col.prop(s, "wet_strength")
@@ -106,6 +127,16 @@ class RAINFX_PT_scene(_Sub, bpy.types.Panel):
 
     def draw(self, context):
         lo = self.layout
+        s = context.scene.rainfx
+        col = lo.column(align=True)
+        col.prop(s, "backlight_style")
+        col.prop(s, "backlight_strength", text="Strength")
+        row = col.row(align=True)
+        row.operator("rainfx.add_backlight", icon="LIGHT_SPOT")
+        row.operator("rainfx.remove_backlight", icon="X", text="")
+        if context.scene.camera is None:
+            col.label(text="Needs an active camera", icon="INFO")
+        lo.separator()
         lo.operator("rainfx.lightning", icon="LIGHT_AREA")
         lo.operator("rainfx.post", icon="NODE_COMPOSITING")
         lo.separator()

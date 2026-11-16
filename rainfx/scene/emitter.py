@@ -167,9 +167,14 @@ def create_demo(scene: bpy.types.Scene) -> None:
 
     ob = bpy.data.objects.get("RainFX Surface")
     if ob is None:
+        # a 64 x 64 grid (0.31 m cells), not one quad: wetness lives on the mesh,
+        # so shelter (dry patches under the monkey) needs vertices to land on
+        n, half = 64, 10.0
+        k = n + 1
+        verts = [(-half + 2 * half * i / n, -half + 2 * half * j / n, 0.0) for j in range(k) for i in range(k)]
+        faces = [(j * k + i, j * k + i + 1, (j + 1) * k + i + 1, (j + 1) * k + i) for j in range(n) for i in range(n)]
         me = bpy.data.meshes.new("RainFX Surface")
-        me.from_pydata(((-10, -10, 0), (10, -10, 0), (10, 10, 0), (-10, 10, 0)),
-                       [], [(0, 1, 2, 3)])
+        me.from_pydata(verts, [], faces)
         me.validate()
         ob = bpy.data.objects.new("RainFX Surface", me)
         col.objects.link(ob)

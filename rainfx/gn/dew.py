@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import bpy
 
-from .dsl import B
+from .dsl import B, ensure_versioned
 
 GROUP_NAME = "RainFX Dew"
 GROUP_VERSION = 1
@@ -14,9 +14,7 @@ def ensure_group() -> bpy.types.NodeTree:
     ng = bpy.data.node_groups.get(GROUP_NAME)
     if ng is not None and ng.get("rainfx_version") == GROUP_VERSION:
         return ng
-    if ng is not None:
-        bpy.data.node_groups.remove(ng)
-    return build()
+    return ensure_versioned(ng, GROUP_NAME, build)
 
 
 def build() -> bpy.types.NodeTree:

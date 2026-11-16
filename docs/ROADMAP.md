@@ -1,6 +1,6 @@
 # Roadmap
 
-Each phase ends with a Blender 5.2.1 acceptance pass (the Testing section of `SYSTEM_DESIGN.md`). Scope is ordered by value to rendered output.
+Each phase ends with a Blender 5.2 acceptance pass (the Testing section of `SYSTEM_DESIGN.md`). Scope is ordered by value to rendered output.
 
 ## Phase 0 - v0.1 (this repository)
 
@@ -31,6 +31,31 @@ Exit criteria: acceptance checklist passes on 5.2.1; extension validator passes;
 | Distant rain | **Done (0.2.0)** — static GN "RainFX Distant" far layer: translucent streaks scatter into a 3x reach / 2x height shelf and wrap at the preset's own fall speed and wind; no sim zone, no cache, pure frame function (replay/bake safe); separates the emitter so impact scans stay untouched |
 | Lens interaction | **Done (0.2.0)** — compositor droplet-displacement stage on the RainFX post chain (two drifting, procedurally generated signed drop maps via frame drivers; foreign compositing trees are never touched) |
 | Sound-ready events | **Done (0.2.0)** — "Export Impact Events" button replays the frame range and writes impact-event JSON (frame, position, intensity = drop diameter in mm, type impact/snow) for audio sync |
+
+## Phase 2.5 - Cinematic look (from the 2026-11 rain research)
+
+| Item | Notes |
+|---|---|
+| Rain backlight | **Done (1.0)** - *Add Rain Backlight* spot behind the rain, aimed back at the camera |
+| No self-lit rain | **Done (1.0)** - streaks lit from behind (translucent + Fresnel gloss, no emission, no diffuse); per-streak alpha jitter and Fresnel rim; true drop size near the camera |
+| Fog and glow from rain rate | **Done (1.0)** - measured rain extinction x `fog_mist`; Fog Glow strength grows with rate |
+| Porosity wet shading | **Done (1.0)** - albedo x lerp(1, 0.2, porosity), metal unchanged, flat puddle normals, textures kept |
+| Per-drop splash threshold | **Done (1.0)** - each drop splashes only when K = We Oh^-2/5 is above *Splash Threshold*; droplet count and speed from K |
+| Impact ring ripples | **Done (1.0), procedural** - Lagarde's four layered ring textures in standing water, ring count from the rain rate; rings at the simulated impact points are still open (a shader cannot read the impact list) |
+| Crown and spray | **Done (1.0)** - 0.1 s crown ring per splashing drop on up-facing faces (R ~ sqrt(t)); low spray mist over the ground from 8 mm/h |
+| Foreground layer and lens | **Done (1.0)** - *Foreground Rain* around the camera; lens drops blur what is seen through them, sliding drops with trails |
+| Drips from edges | **Done (1.0)** - drops and growing beads at exposed roof, sill and lamp-head edges with air below |
+| Ambient wetness | **Done (1.0)** - every exposed surface wet (three-ray exposure against the colliders), sheltered spots dry, puddles from the rain rate, *Already Wet* |
+| Hero drops | Oscillation speckle along near streaks; flattened-base drop mesh for close-ups |
+| Water running off surfaces | Rivulets down walls and windows, gutter outflow; drip rate from the area draining to an edge |
+
+## 1.0 - Stable release (2026-11-16)
+
+Everything above marked Done, plus the release hardening: persistent wetness feed (survives reopening, works in
+command-line renders, every emitter), wetness in each collider's own space, rain never seeded under shelters,
+background bakes of the current scene and the chosen emitter (Windows paths), crash-free upgrade of 0.3 scenes
+(`tests/blender_upgrade_smoke.py`), clean unregister mid-bake, fog without a visible box, and CI on Linux,
+Windows and macOS with Blender 5.2.3 and 5.2.4.
 
 ## Phase 3 - Hero physics
 

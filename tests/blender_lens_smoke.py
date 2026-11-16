@@ -65,13 +65,24 @@ def _marked():
 tree = co.apply_lens(scene, 1.0)
 assert tree is not None, "apply_lens refused a fresh scene"
 marked = _marked()
-assert len(marked) == 6, f"expected 6 lens nodes, got {len(marked)}"
+assert len(marked) == 9, f"expected 9 lens nodes, got {len(marked)}"
 kinds = sorted(n.bl_idname for n in marked)
 assert kinds == sorted([
     "CompositorNodeDisplace", "CompositorNodeAlphaOver",
     "CompositorNodeTransform", "CompositorNodeTransform",
     "CompositorNodeImage", "CompositorNodeImage",
-]) or True, kinds  # id inventory printed for the record
+    "CompositorNodeSeparateColor", "CompositorNodeBlur", "ShaderNodeMix",
+]), kinds
+# blur inside the drops: the Mix factor is the droplet mask (map alpha)
+mix = next(n for n in marked if n.bl_idname == "ShaderNodeMix")
+fac = next(s for s in mix.inputs if s.name == "Factor" and s.enabled)
+assert fac.is_linked and fac.links[0].from_socket.name == "Alpha", "blur not masked by the drops"
+blur = next(n for n in marked if n.bl_idname == "CompositorNodeBlur")
+assert blur.inputs["Size"].default_value[0] >= 2.0
+# the sliding layer (map B) carries trails: more wet pixels than the static map A
+alpha = lambda img: sum(1 for v in list(img.pixels)[3::4] if v > 0.01)  # noqa: E731
+na, nb = alpha(bpy.data.images[co.LENS_A]), alpha(bpy.data.images[co.LENS_B])
+assert nb > 0 and na > 0, (na, nb)
 trans = [n for n in marked if n.bl_idname == "CompositorNodeTransform"]
 scene.frame_set(30)
 for t in trans:
@@ -85,14 +96,14 @@ for name in imgs:
     assert img.size[0] == 128 and img.size[1] == 128, f"{name} size {img.size[:]}"
     # a byte image would quantize the signed displacement map to a no-op
     assert img.is_float, f"{name} must be float_buffer"
-print("[Build] chain built: 6 lens nodes, 2 maps, drivers live")
+print(f"[Build] chain built: 9 lens nodes (blur masked inside drops), 2 maps ({na} / {nb} wet px), drivers live")
 
 # 2. idempotent -----------------------------------------------------------
 n_before = len(_marked())
 count_before = len(compat.get_compositing_tree(scene, create=False).nodes)
 again = co.apply_lens(scene, 1.0)
 assert again is not None
-assert len(_marked()) == n_before == 6, "second apply added nodes"
+assert len(_marked()) == n_before == 9, "second apply added nodes"
 assert len(compat.get_compositing_tree(scene, create=False).nodes) == count_before
 print("[Idempotent] second call changes nothing")
 
@@ -121,7 +132,7 @@ _fresh()
 # 5. removal --------------------------------------------------------------
 co.apply_lens(scene, 1.0)
 removed = co.remove_lens(scene)
-assert removed == 6, f"expected 6 removed, got {removed}"
+assert removed == 9, f"expected 9 removed, got {removed}"
 tree = compat.get_compositing_tree(scene, create=False)
 lens = [n for n in tree.nodes if n.get("rainfx_lens")]
 assert not lens, "lens nodes survived removal"

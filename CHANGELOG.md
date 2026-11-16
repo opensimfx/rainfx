@@ -1,8 +1,99 @@
 # Changelog
 
-## Unreleased
+## 1.0.0 (2026-11-16)
 
-- Nothing yet.
+First stable release. Scenes made with 0.3 open and play as saved; the first change you make (or *Apply*)
+upgrades their node groups, materials, fog and lens stage in place. Wetness built by 0.3 starts again.
+
+### Rain that looks filmed (research in `docs/PHYSICS.md`, *Look*)
+
+- Streaks are lit from behind, like real drops: a raindrop shows a wide view of what lies behind it (Garg &
+  Nayar), so the streak shader is now translucent with a weak Fresnel gloss instead of a Principled BSDF with
+  10 % white diffuse. Rain blazes in front of a lamp, reads against dark walls by day and vanishes against the
+  sky, instead of glowing evenly everywhere. No constant emission; per-streak alpha jitter and a Fresnel rim.
+- Drops near the camera are drawn at their true size: *Visual Scale* now fades in with distance (full width
+  past 2 x scale metres), so drops passing the lens are no longer finger-thick sticks. Splashes and crowns
+  follow the same rule, which keeps crowns small in close-ups.
+- New *Add Rain Backlight* (Scene Integration): a hard spot beyond the rain aimed back at the camera, hidden
+  from camera rays; *Street Lamp*, *Moonlight* or *Neutral*.
+- Fog follows the rain rate (preset field `fog_mist` x measured rain extinction) and now reaches 3 x the rain
+  volume with soft edges, so its box no longer shows as a wall of haze in wide shots. The compositor glow
+  around lights grows with the rain rate. Rain presets from 8 mm/h add a low spray mist over the ground.
+- Splashes are decided per drop: K = We Oh^-2/5 from each drop's own size and impact speed, against the new
+  *Splash Threshold*; drizzle never splashes, big drops throw more and faster droplets. *Splash Amount* now
+  means the droplets of a 2 mm drop at terminal speed (rain presets raised to 2-6).
+- Crowns: a splashing drop on an up-facing surface leaves a short open ring (0.1 s) growing as sqrt(t);
+  *Crowns* on the modifier turns them off.
+- New *Drips*: drops falling from the edges of roofs, sills and lamp heads the rain reaches, with a growing
+  bead at each drip point; faster in heavier rain. Found on the colliders; pure function of time (no cache).
+- New *Foreground Rain*: big, soft streaks 0.6-4 m around the active camera, the near layer of filmed rain.
+- Lens drops blur what is seen through them; the faster layer has sliding drops with wet trails.
+
+### Wet surfaces
+
+- Every surface the rain can reach is wet, not only where simulated drops landed: a ray test toward where the
+  rain comes from (five rays from straight up to the full wind tilt) finds what is exposed, so open ground and windward
+  walls are wet, ground under a roof stays dry and a street canyon gets a soft rain shadow on its upwind side.
+  New *Already Wet* (on: wet from the first frame; off: wets up over 10-120 s, faster in heavier rain) and
+  *Puddles* (standing water on exposed flat ground, scaled by the rain rate). Simulated hits add detail on top.
+- Wet shading after Lagarde: albedo darkens by porosity and keeps its hue, metal does not darken, roughness
+  tends to a water film's (0.18) so lights streak on wet asphalt, puddles are near mirrors with ring ripples
+  (more rings in heavier rain) and flatten the material's normal map. Textured inputs stay connected.
+- No more tiles: wet and pool are stored per face corner, blending across faces but never bleeding down a
+  wall; puddles fill the low spots of a noise height map, giving organic edges at any mesh resolution.
+- Impact footprints are Gaussian (were exponential), so repeated rain no longer creeps under roofs.
+- Fix: moved, rotated or scaled colliders got wet in the wrong place (impacts were compared in the wrong
+  space).
+- Fix: wetness stopped after reopening a file and in command-line renders (its frame handler was dropped on
+  load); it also read only the first emitter. All emitters now feed it.
+- The Collisions panel lists colliders too coarse for wetness detail (edges over 4 x *Wet Radius*). The demo
+  ground is a 64 x 64 grid instead of one quad.
+- Moving, editing, adding or removing a collider refreshes the sheltering and the drip points by itself after
+  half a second (not during playback, rendering or Edit Mode; keyframed colliders keep the pose of the last
+  refresh).
+
+### Snow, hail and dew
+
+- Snow settles: exposed up-facing surfaces carry a snow cover from the first frame (*Already Snowy*, the same
+  switch as *Already Wet*) or build it up, from about 0.57 x *Snow Depth* in light snow to full in heavy snow
+  and blizzards; ground under shelter and in the lee of buildings stays bare, with soft edges. Flake landings
+  still add on top.
+- Snowflakes are 35 % translucent, so they glow in front of lamps and a bright sky instead of reading as grey
+  specks; snow presets have about twice the flakes (light 18, heavy 55, blizzard 75 per m^3) and Visual Scale 4.
+- *Distant Rain* draws snow presets as round ~2 cm flakes in the snow material (1.5 x the count) instead of rain
+  streaks.
+- Fix: *Distant Rain* added falling rain streaks to the Dew preset; it is removed for dew.
+- Dew is denser: 3000 beads per m^2 (was 350, which left one bead in a macro frame); collide only the object you
+  photograph, since *Max Beads* caps the total over all colliders.
+
+### Reliability
+
+- Baked scenes render anywhere: *Bake* (in this Blender or in the background) now bakes the wetness on every
+  collider together with the rain, with the impact feed running while Blender steps the frames, so a render
+  farm without RainFX renders the same rain, wetness and drips as your machine (`blender_farm_smoke.py` opens
+  the baked file in a Blender without the add-on). *Delete* clears both.
+- Fix: lens-drop maps were lost when the file was saved and reopened (generated images keep no pixels); they
+  are now packed into the .blend as float EXR, exactly.
+- Rain no longer starts under shelters: start points that a drop could not have reached (a ray back along its
+  fall direction meets a collider) are removed, so ground under a roof is dry from the first frame.
+- Background bake: bakes the scene as it is now (a temporary copy), not as last saved; bakes the chosen
+  emitter, not the first one in the file; works with any path on Windows (the cache path was pasted into a
+  Python string, so backslashes broke it); shows progress only for this bake's files.
+- Disabling or updating RainFX during a background bake stops the child Blender and the progress timer, and
+  the frame handler is removed.
+- Fix: changing a setting in a scene from an older version crashed Blender (a rebuilt node group kept the old
+  group's simulation state); rebuilt groups also no longer drop other emitters or colliders that used them.
+- Fix: a 0.3 lens stage is rebuilt with the blur when the lens is applied again.
+- Fix: the fog and spray boxes no longer share a face with the ground (Cycles lit the ground inside them).
+- Fix: the *Distant Rain* layer was scaled twice and spread over ~2.3 km; it spans its 48 m box.
+- Continuous integration: pure tests on Linux, Windows and macOS (Python 3.11 and 3.13); Linux jobs build and
+  validate the zip, run every non-EEVEE Blender test in Blender 5.2.3 and 5.2.4 and render the street bench in
+  Cycles; a Windows job runs the simulation, wetness, bake (including the background bake), farm, upgrade and UI
+  tests in Blender 5.2.3 and renders the bench in Cycles.
+- New tests: `blender_hardening_smoke.py` (reopen, transformed colliders, several emitters, group rebuild,
+  shelter, collider watcher, unregister), `blender_farm_smoke.py` (baked scene without RainFX), `blender_upgrade_smoke.py` (a scene saved by 0.3.0), `blender_drips_smoke.py`,
+  `blender_detail_smoke.py`, `blender_look_smoke.py`; the background-bake test now proves the reopened scene
+  plays from the child's cache. New `tools/render_look.py` renders the street scene used for the README.
 
 ## 0.3.0-beta.1 (2026-11-16)
 

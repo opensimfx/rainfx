@@ -67,7 +67,7 @@ logic testable with plain `pytest` (`tests/test_physics.py`, 11 tests) and keeps
 | `gn/precip.py` | Builds the `RainFX Precipitation` group: init, simulation zone, rendering instances |
 | `gn/dew.py` | Builds the `RainFX Dew` group: beads on up-facing collider faces with a hard count cap |
 | `gn/materials.py` | Water, splash, ice, snow, dew materials, created on demand; `wire_wetness()` links the wet look into a collider's material |
-| `gn/wetness.py` | Builds the `RainFX Wetness` helper group: per-collider accumulation of `rainfx_wet` per face, `rainfx_pool` standing water mask, per-vertex `rainfx_snow` + post-sim normal lift |
+| `gn/wetness.py` | Builds the `RainFX Wetness` helper group: per-collider accumulation of `rainfx_wet` and the `rainfx_pool` standing water mask per face corner, per-vertex `rainfx_snow` + post-sim normal lift |
 | `gn/distant.py` | Builds the static `RainFX Distant` far layer group: seeded scatter, per-frame deterministic wrap drift, align-to-fall streak instancing (see 4.8) |
 | `scene/distant.py` | Creates/updates/removes the background layer object, pushes preset-derived wind/fall speed, parents it to the Follow Object like the fog |
 | `scene/wetness.py` | Attaches/removes the helper per collider and refreshes the hidden `RainFX Impacts` / `RainFX Snow Impacts` carriers each frame (see 4.6/4.7) |
@@ -122,10 +122,11 @@ dropped at the zone boundary (documented behaviour of simulation zones).
 ### 4.2 Initialisation (frame 1, evaluated once)
 
 1. Count = `Count x (Viewport Density if in viewport else 1)`.
-2. Positions: uniform random in the box (X, Y centred, Z from 0 to height), then offset by the volume origin; a
-   +Z/-Z ray-parity test against the colliders deletes any start point inside an enclosed volume (respawned
-   points are not re-checked)
-   (Follow Object's world location + Follow Offset; the emitter itself when no object is set).
+2. Positions: uniform random in the box (X, Y centred, Z from 0 to height), then offset by the volume origin
+   (Follow Object's world location + Follow Offset; the emitter itself when no object is set). A ray from each
+   point back along its fall direction (-normalize(initial velocity): up and into the wind) that meets a
+   collider deletes the point (1.0): no drop could have reached it, under a roof or inside a closed shape.
+   Respawned points start at the top of the box and are not re-checked.
 3. Diameter: inverse-CDF sample of an exponential truncated to [D Min, D Max] with slope Lambda.
    `D = Dmin - ln(1 - u (1 - exp(-L (Dmax - Dmin)))) / L`. For rain, Lambda = 4.1 R^-0.21 (Marshall-Palmer).
 4. Terminal speed by mode: rain (Stokes bridge below 0.5 mm, Atlas fit above), hail `0.85 x 9 (D/10)^0.8`, snow `v0 (0.85 + 0.03 D)`.
@@ -161,17 +162,23 @@ capture all results (Capture Attribute) -> Set Position / Store velocity / bounc
 world->local: the final Set Position subtracts the emitter's world location, so the
 output is emitter-local again (emitter rotation/scale must stay identity).
 
-splash spawn: duplicate hit rain particles (Splash Amount copies)
-  direction = normalize(0.6..1.4 n + tangential random), speed = Splash Speed x (0.4..1.6) x size factor + cvel
+splash decision per landing rain drop: K = We Oh^-2/5 from its diameter and |v - cvel|
+  n = floor(Splash Amount x clamp(ln(K / Splash Threshold) / ln(K_ref / 2100), 0, 2) + random)
+splash spawn: duplicate hit rain particles (n copies each; none when K <= threshold)
+  direction = normalize(0.6..1.4 n + tangential random), speed = Splash Speed x (0.4..1.6) x clamp((K / K_ref)^1/4, 0.5, 2) + cvel
   life = random(min, max), diameter = parent x Splash Size x (0.4..1.2)
+crown spawn (Crowns on, K above threshold, hit normal z > 0.5): one static point per landing,
+  crown = 1, velocity 0, life 0.1 s, keeps parent diameter, hit normal (nrm) and impact speed (vimp)
 
-splash update: v += g dt ; pos += v dt ; age += dt ; delete where age > life
+splash update: droplets v += g dt ; pos += v dt ; crowns stay put ; age += dt ; delete where age > life
 ```
 
 ### 4.4 Output
 
 Primaries become instances: cylinder (6 vertices) aligned to velocity and stretched to `|v| x Shutter`, or an ico
-sphere when `Shutter = 0`. Width is `D x Visual Scale`. Splash droplets are ico spheres. `Output Mode = 1` outputs the raw
+sphere when `Shutter = 0`. Width is `D x min(max(d / 2 m, 1), Visual Scale)`, d = distance to the active
+camera (Active Camera node; true size near the lens, 1.0). Splash droplets are ico spheres. Crowns are open 16-sided flared cones (base half the rim) aligned to the hit
+normal, rim radius `0.5 sqrt(D V age) x sqrt(effective Visual Scale)` and height 0.57 x radius, with the splash material. `Output Mode = 1` outputs the raw
 state as mesh vertices instead (used by the tests and useful for custom instancing). Primary drops that land this frame
 also form an invisible vertex mesh inside the output (named `imp` flag = 1, zero area, renders nothing).
 
@@ -194,24 +201,51 @@ also form an invisible vertex mesh inside the output (named `imp` flag = 1, zero
 ### 4.6 Wetness (`RainFX Wetness` helper)
 
 Each wet-enabled collider gets a `RainFX Wetness` node modifier at the top of its stack. It runs its own
-simulation zone that accumulates a per-face `rainfx_wet` float: each step it finds how close the face
-centre is to any current impact vertex, adds `Strength x exp(-distance / Wet Radius)`, and decays the
-value by `Dry Rate x dt` (saturating at 1). The same step accumulates a per-face `rainfx_pool`
-standing-water mask: the increment is footprinted on up-facing faces (`max(0, normal_z)`) and weighted
-by a height mask over the object's own bounding box (low spots pool up to 65% stronger; the mask is a
-weight, not a gate, so raised tops still pool at the 35% floor). Pools fill instantly inside the
+simulation zone that accumulates a `rainfx_wet` float on the face-corner domain: each step it finds how
+close the corner's vertex is to any current impact vertex, adds `Strength x exp(-(distance / Wet Radius)^2)`
+(Gaussian, 1.0), and decays the value by `Dry Rate x dt` (saturating at 1). Before the zone, an exposure
+per corner is computed once (1.0): five rays from 2 cm off the face toward where the rain comes from (Sky
+Direction blended toward Rain Direction in quarter steps, both set per object in its own space) against the hidden
+`RainFX Shelter` mesh, a world-space copy of every collider rebuilt by `wetness.build_shelter()` on each
+refresh and read RELATIVE. Exposed corners take the *Ambient Wet* level (and flat ones *Ambient Pool*); with
+*Wet Up Time* > 0 a `rainfx_amb` state rises toward it, else it starts there. Wet and pool never drop below
+the ambient level while the rain lasts. Snow presets set *Ambient Snow*: the corner exposure averaged onto
+each vertex and gated by its normal sets a `rainfx_snow` floor the same way. `scene/watch.py` rebuilds the
+shelter and the drip points after collider edits, and *Bake* bakes the helpers with the emitter. Reading the collider collection directly would make every collider
+depend on every other one, itself included (a dependency cycle that hung evaluation). Corners rather than faces (0.4): coplanar faces
+meeting at a vertex get the same value there, so the shader interpolates smoothly across them instead of
+showing one flat value per face, while faces meeting at a hard edge keep separate values. The same step
+accumulates a `rainfx_pool` standing-water mask on the corners: the increment is footprinted on up-facing
+faces (`max(0, face normal z)`, the face normal evaluated per corner so puddles never bleed down walls) and
+weighted by a height mask over the object's own bounding box (low spots pool up to 65% stronger; the mask
+is a weight, not a gate, so raised tops still pool at the 35% floor). Pools fill instantly inside the
 footprint and dry 4x slower (`Dry Rate x dt x 0.25`), reading as lingering standing water.
-`materials.wire_wetness()` links both attributes into the surface: Base Color pulled toward a dark
-pool colour and roughness scaled by `1 - 0.85 x max(wet, pool)` — glossier, darker where wet (5.2's
-Principled has no Wet Amount socket, so the cue is colour + roughness). Where `rainfx_pool` rises, the
-material also gets a procedural ripple bump: noise texture over Object coordinates drifted along X by
-a frame-driven time value (5.2's noise W socket is disabled), bump strength proportional to the pool
-mask.
+`materials.wire_wetness()` links both attributes into the surface (Lagarde's wet-surface model, see
+PHYSICS.md *Look*): a world-space noise height map shapes them, so standing water fills the low spots
+first (puddle = (1.2 pool - h) / 0.15, organic edges at any mesh resolution) and high spots dry first;
+albedo darkens by porosity, roughness drops with the water film and to a near mirror in puddles, and
+puddles get the "RainFX Ripples" ring bump and flatten the material's normal map. The mesh still sets
+the spatial detail of where rain landed: `wetness.coarse_colliders` lists colliders with edges over
+4 x Wet Radius, shown as a hint in the Collisions panel.
 
 The impacts are not read from the emitter directly (D11): a hidden `RainFX Impacts` mesh object is
-refreshed every frame by a `frame_change_post` handler that copies the emitter's evaluated impact
-vertices; the helpers read that carrier via ObjectInfo. Wet *state* lives only in each helper's sim
-zone, so baking is unaffected — the handler is just the input feed.
+refreshed every frame by a `frame_change_post` handler that copies every emitter's evaluated impact
+vertices in world space (numpy, `foreach_get`); the helpers read that carrier via ObjectInfo RELATIVE, so
+moved, rotated or scaled colliders compare hits in their own space. The handler is `@persistent` and
+registered with the add-on (1.0), so it survives file loads and runs in command-line renders; it returns
+at once when no carrier exists. Wet *state* lives only in each helper's sim zone, so baking is unaffected —
+the handler is just the input feed (a render farm needs RainFX installed for it).
+
+### 4.6b Drips (`RainFX Drips` layer)
+
+`scene/drips.py` finds drip points on the colliders when the layer is refreshed: near-horizontal edges where
+an up-facing face (normal z > 0.7) meets a side face (normal z < 0.3) or the mesh ends, open to the sky above
+that face, with at least 0.3 m of air below (BVH ray casts over a world-space copy of the colliders). One point
+per 0.3 m / *Drip Density*, capped at 5000. The points go into the hidden `RainFX Drips` mesh with `fall`,
+`period` and `phase` attributes. The `RainFX Drips` node group (`gn/drips.py`) is a pure function of Scene
+Time like the distant layer: per point k = t / period + phase, six duplicates stand for the drops released
+0-5 periods ago, each falls from rest to terminal speed (`physics.drip_fall`) and is deleted past its fall
+height; a bead hangs at the point and grows from 35 % to full size until release. No cache.
 
 ### 4.7 Snow cover (same helper, second carrier)
 
@@ -334,40 +368,49 @@ two-object collider set). Expect much better numbers on multi-core hardware, but
   ranges covered-exactly); continuing past the baked end is not identity-stable in Blender 5.2.1, so re-bake when
   the render range grows.
 - *Background bake* (0.2.0): bpy is main-thread-only and the stock bake op is one blocking call, so a true
-  "different thread" is a second headless Blender process (`rainfx/scene/baker.py`) opened on the saved .blend.
-  The parent pre-sets the bake metadata (range, `bake_target='DISK'`, `bake_directory`), which persists through
-  the save, and the child re-applies it and runs the stock bake op. Progress is the number of per-frame cache
+  "different thread" is a second headless Blender process (`rainfx/scene/baker.py`). The parent saves a copy of
+  the scene as it is now next to the .blend (1.0; the saved file could be stale), sets its own modifier to the
+  same disk target and range so it reads what the child writes, and the child bakes the named emitter and
+  modifier (1.0; was the first emitter in the file). Paths and names reach the child script as `repr()`
+  literals (Windows backslashes). Progress is the number of per-frame cache
   files (`<bake_dir>/<record-id>/blobs/*.blob`) against the expected count — polled by a 0.5 s `bpy.app.timers`
   tick that also sets a WAIT cursor. Packed bakes keep the legacy in-process path bit-for-bit.
-- Random streams are seeded from `Seed` and the scene frame, so the same file is expected to give the same weather (not covered by a test yet).
+- Random streams are seeded from `Seed` and the scene frame, so the same file gives the same weather (`blender_determinism_smoke.py`).
 - Changing Count, box size or most inputs requires a re-bake or playing again from the start frame, as with any simulation zone.
 
 ## 8. Error handling and robustness
 
 - `compat.set_modifier_input` returns `False` instead of raising when a socket does not exist, so presets with extra keys never break an older node group.
-- Node groups carry `rainfx_version`; `ensure_group()` rebuilds a stale group rather than editing it.
+- Node groups carry `rainfx_version`; `ensure_group()` rebuilds a stale group rather than editing it
+  (`dsl.ensure_versioned`): every modifier using the old group is detached (which clears its simulation state;
+  `ID.user_remap` kept it and crashed Blender), the group rebuilt and the modifiers re-attached, so a second
+  emitter or the other colliders keep working. Materials (`rainfx_mat_version`, `rainfx_wet`), the fog and
+  spray (`rainfx_fog_version`) and the lens stage (no blur node = 0.3) are upgraded in place the same way.
+- `unregister()` stops a running background bake, its progress timer and the frame handler.
 - A broken user preset file is skipped with a console message.
 - The compositor is untouched when the scene already has nodes; lighting changes store the original values and can be reverted.
 - Dew has a hard bead cap (`Max Beads`) derived from collider area. Without it a 120 m ground plane produced 5 million beads in testing.
 
-## 9. Known limitations (v0.2)
+## 9. Known limitations (1.0)
 
 1. Collider velocities are translation-only: matched step-over-step by nearest point, so rotating or deforming colliders get approximate velocities, and changing the collider set mid-simulation costs one inaccurate step.
-2. Only init positions get the inside-collider test; a recycled (respawned) drop can still start inside a collider for one follow-up scan of the box. Open-topped shapes (cups) are not detected by the ray parity.
+2. Only init positions get the shelter test; a recycled (respawned) drop starts at the top of the box and is never re-checked, so a collider reaching above the volume top can hold drops inside it for one fall.
 3. One impact per particle per step; with default 24 fps and speeds under 15 m/s this is not visible.
-4. Puddles are an amber cue (colour + roughness + ripple bump), not real water: no geometry, no refraction, no growing ring waves.
+4. Puddles are a shading effect (colour, roughness, flood-level mask, ring-ripple bump), not water geometry: no refraction depth and no rings at the simulated impact points.
 5. Snow lift is per vertex on the receiving face's own normals, so low-res meshes lift as plates and seams can open where normals differ; there is no melt or settling physics.
 6. The distant layer is a wrapping open-world filler: it never collides, splashes or gates on camera distance, and its shelf edge is visible if a wide shot puts the camera outside it (turn the layer off or enlarge the Volume).
 7. The lens stage is screen-space: droplet drift is calibrated by feel (pixels per frame, decoupled from wind), and a droplet warps whatever the camera sees — it has no notion of what is behind the glass, so very bright highlights can smear unrealistically. The stage also assumes an unclipped camera framing.
 8. Impact-event exports sample the impact sink with a per-frame cap of 256 (even stride), so dense storms are a statistical sample, not a lossless record; 'intensity' is only the landing drop's diameter (no per-event velocity), and positions are emitter-local — consumers multiply by the emitter's `matrix_world` when the layer is follow-mounted. The export replays the whole frame range sequentially, so cost grows linearly with range and collision complexity.
-9. Blender 5.2.1 runtime behaviour is unverified (see [DEVELOPMENT.md](DEVELOPMENT.md)).
-
+9. Exposure (ambient wetness and snow cover) and drip points are computed from the colliders when they are refreshed, not every frame. `scene/watch.py` refreshes them by itself half a second after a collider is moved, edited, added or removed (not during playback, rendering or Edit Mode). Keyframed colliders keep the exposure of the last refresh, and a simulation reads its exposure at its start frame only.
+10. Unbaked wetness needs RainFX in the Blender that plays or renders the scene (a frame handler feeds the helpers). *Bake* bakes the helpers with the rain, so baked scenes render anywhere (`blender_farm_smoke.py`); drips, materials and drivers never need the add-on.
+11. Drips fall from edges without a flow model: no water running down walls or along gutters, and drip rate follows the rain rate, not the area that drains to the edge.
+12. Hail leaves wet ground, not a layer of stones (stones recycle after their bounces); snow cover is a per-vertex amount and lift, not drifts.
 
 ---
 
 ## Testing
 
-Moved to [DEVELOPMENT.md](DEVELOPMENT.md): test layers, how to run them, recorded results, the 5.2.1
+Moved to [DEVELOPMENT.md](DEVELOPMENT.md): test layers, how to run them, recorded results, the
 acceptance checklist, and how to add tests.
 
 
@@ -459,7 +502,7 @@ renaming a socket requires updating `emitter.apply_preset` and `docs/PRESETS.md`
 | Setup | Colliders, Mode, Seed, Box Size, Count, Viewport Density, Output Mode |
 | Population | D Min, D Max, Lambda, Speed Scale, Snow Speed |
 | Air | Wind, Gust Strength, Gust Scale, Gust Speed, Inertia |
-| Impact | Restitution, Max Bounces, Splash Amount, Splash Speed, Splash Life Min, Splash Life Max, Splash Size, Gravity |
+| Impact | Restitution, Max Bounces, Collider Push, Splash Amount, Splash Threshold, Crowns, Splash Speed, Splash Life Min, Splash Life Max, Splash Size, Gravity |
 | Look | Shutter, Visual Scale, Drop Material, Splash Material |
 
 ### Build and release

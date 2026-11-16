@@ -15,6 +15,9 @@ from .. import compat
 from . import emitter as em
 
 DISTANT_NAME = "RainFX Distant"
+SNOW_COUNT = 1.5           # far flakes per far streak (slow snow lingers in view)
+SNOW_STREAK_SCALE = 0.15   # with SNOW_WIDTH_SCALE: ~2 cm flakes, length ~ width at 1-1.5 m/s
+SNOW_WIDTH_SCALE = 16.0
 
 
 def _emitter(scene: bpy.types.Scene):
@@ -39,10 +42,12 @@ def refresh(scene: bpy.types.Scene, enabled: bool, ob=None, box=None, density: f
     et = ob if ob is not None else _emitter(scene)
     if et is None:
         return 0
+    preset = em.all_presets().get(et.get("rainfx_preset", ""), None)
+    if preset is not None and preset.mode == "dew":
+        return remove()                 # dew does not fall: no background precipitation
     obj = bpy.data.objects.get(DISTANT_NAME)
     if obj is None:
-        # display-only unit box (XY centred, Z 0..1) scaled to the far shelf,
-        # mirroring atmosphere.create_fog's construction
+        # display-only unit box (XY centred, Z 0..1); the modifier output replaces it
         mesh = bpy.data.meshes.new(DISTANT_NAME)
         h = 0.5
         v = [(x, y, z) for x in (-h, h) for y in (-h, h) for z in (0.0, 1.0)]
@@ -67,14 +72,22 @@ def refresh(scene: bpy.types.Scene, enabled: bool, ob=None, box=None, density: f
     from ..gn import materials
     d = et.get("rainfx_derived") or {}
     obj.location = tuple(et.location)
-    obj.scale = far
+    # unit scale: the node group already spans Box Size in object space (0.3 also
+    # scaled the object by the box, which blew the layer up to ~1 km and widened
+    # every far streak 48x); the display box shows the evaluated bounds anyway
+    obj.scale = (1.0, 1.0, 1.0)
     S = lambda k, v: compat.set_modifier_input(mod, k, v)  # noqa: E731
+    snow = int(d.get("mode_index", 0)) == 2
     S("Box Size", far)
-    S("Count", max(0, int(far[0] * far[1] * far[2] * 0.5 * density)))
+    # snow: slow flakes, so more of them stay in view, drawn as ~2 cm round
+    # flakes in the snow material instead of rain streaks
+    S("Count", max(0, int(far[0] * far[1] * far[2] * 0.5 * density * (SNOW_COUNT if snow else 1.0))))
     S("Wind", tuple(et.get("rainfx_wind", (0.0, 0.0, 0.0))))
     S("Fall Speed", float(d.get("vt_mean_ms", 9.0)))
     S("Seed", int(seed) + 511)
-    S("Distant Material", materials.get_material("distant"))
+    S("Streak Scale", SNOW_STREAK_SCALE if snow else 1.0)
+    S("Width Scale", SNOW_WIDTH_SCALE if snow else 1.0)
+    S("Distant Material", materials.get_material("snow" if snow else "distant"))
     if follow is not None:  # rides along with the follow target, like the fog
         obj.parent = follow
         obj.matrix_parent_inverse = follow.matrix_world.inverted()

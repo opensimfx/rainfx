@@ -13,6 +13,38 @@ import bpy
 NodeSocket = bpy.types.NodeSocket
 
 
+def ensure_versioned(stale, name: str, build):
+    """Build a fresh group and move every modifier using the ``stale`` one onto it.
+
+    Deleting a stale group would leave each modifier still pointing at it (a
+    second emitter, the other colliders, a file made by an older version)
+    with no node group, rendering nothing. ``ID.user_remap`` is not safe
+    either: the modifiers keep their simulation state for the old group's
+    zones and Blender crashes evaluating them. So each user is detached
+    (which clears that state), the group rebuilt, and the users re-attached;
+    callers re-apply modifier inputs afterwards.
+    """
+    users = []
+    if stale is not None:
+        for ob in bpy.data.objects:
+            for m in ob.modifiers:
+                if m.type == "NODES" and m.node_group == stale:
+                    m.node_group = None
+                    users.append((ob.name, m.name))
+        stale.name = name + " (stale)"
+    fresh = build()
+    if stale is not None:
+        for ob_name, m_name in users:
+            m = bpy.data.objects[ob_name].modifiers[m_name]
+            m.node_group = fresh
+        if stale.users == 0:
+            bpy.data.node_groups.remove(stale)
+        else:   # still nested somewhere (a user's own group): hand that over too
+            stale.user_remap(fresh)
+            bpy.data.node_groups.remove(stale)
+    return fresh
+
+
 class B:
     def __init__(self, tree: bpy.types.NodeTree):
         self.tree = tree

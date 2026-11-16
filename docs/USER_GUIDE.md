@@ -24,10 +24,12 @@ The emitter's origin is the centre of the *bottom* of the volume. Put it on the 
 | Follow Object | The volume base follows this object's world location (emitter itself if empty) | Pick the camera for camera-following rain |
 | Follow Offset | World offset of the volume base from the follow point | For a camera set Z = -half volume height so the camera sits mid-column |
 | Refraction Drops | Rain drops use a clear refraction material instead of translucent streaks | Close-up shots; set *Shutter* 0 so drops render as spheres |
-| Wetness (Collision sub-panel) | Surfaces darken and gloss where drops actually land, low spots pool as lingering wet puddle shading with a shimmering ripple bump — a hidden "RainFX Impacts" carrier feeds each collider's helper modifier | On for ground shots in rain; tune Wet Radius / Strength, raise Dry Rate for quick-drying surfaces |
+| Wetness (Collision sub-panel) | Every surface the rain can reach is wet (open ground, windward walls), sheltered spots stay dry and a street canyon gets a soft rain shadow on its upwind side; standing water collects in the low spots of exposed flat ground as puddles with organic edges and rain rings (more rings in heavier rain); simulated drops add fresh wet footprints on top. *Already Wet* (on) starts surfaces wet, off they wet up over 10-120 s (faster in heavier rain); *Puddles* scales the standing water (1 = the preset's rain rate, 0 = none). Stored on the mesh, blending smoothly across faces; hidden "RainFX Impacts" and "RainFX Shelter" objects feed each collider's helper modifier | On for any rain shot that shows the ground; moving, editing, adding or removing a collider updates the sheltering by itself half a second later; the collider needs vertices about every *Wet Radius* to show individual footprints and sharp shelter edges (the panel lists colliders that are too coarse: subdivide them); raise Dry Rate for quick-drying surfaces |
 | Snow accumulation (Wetness sub-panel) | Under snow presets, up-facing surfaces gain a per-vertex snow cover that lifts vertices along their normals (*Snow Depth*; metres) and brightens/roughens the surface; tune with *Snow Rate* (snow units per second inside a flake footprint) directly on the helper modifier | On automatically with the Wetness toggle in snow presets; plateaus at Snow Depth on fully covered spots |
 | Distant Rain | A cheap background drizzle layer fills the far view so the near-field simulation can stay sparse; translucent far streaks fall at the preset's own wind and speed around a 3x reach shelf, and the layer follows the Follow Object like fog | On for wide establishing shots; far streaks are open-world filler and never collide; tune *Distant Density* (0.02-3.0) for the look |
-| Lens Drops | A compositing droplet stage smears the rendered frame like water on the camera glass: round beads plus stretched drip streaks keep falling down the lens via frame-driven drifting maps; constant cost, no animation work | On for camera-attached shots through rain; scale with *Lens Strength* (0.1-3.0); only builds on the RainFX post chain — a scene with its own compositing nodes is left untouched |
+| Foreground Rain | Big, soft streaks 0.6-4 m around the active camera, like the near layer of filmed rain: wider and fainter as if out of focus, falling at the preset's speed and wind; the layer follows the camera but keeps falling straight down when the camera tilts | Rain presets only (removed for snow and hail); needs a scene camera; in Cycles turn on camera depth of field and they blur for real; *Foreground Density* 1 = the preset's drop density |
+| Drips | Drops fall from the edges of roofs, sills, awnings and lamp heads that the rain reaches, with a bead growing at each drip point between drops; heavier rain drips faster. Edges need at least 0.3 m of open air below them (curbs do not drip) | On for street and architecture shots; *Drip Density* 1 = a drip point every 30 cm of edge; found on the colliders, and found again by itself when a collider is moved or edited; rain presets only |
+| Lens Drops | A compositing droplet stage smears the rendered frame like water on the camera glass: round beads plus stretched drip streaks keep falling down the lens via frame-driven drifting maps; what is seen through a drop is refracted and blurred, and the faster drops leave wet trails; constant cost, no animation work | On for camera-attached shots through rain; scale with *Lens Strength* (0.1-3.0); only builds on the RainFX post chain — a scene with its own compositing nodes is left untouched |
 | Export Impact Events | A one-click JSON log (Collision panel) for audio middleware: frame, emitter-local position (multiply by the emitter's matrix_world when follow-mounted), intensity = landing drop diameter in mm and type impact/snow, plus fps, preset and mean terminal velocity in the header | Run after the rain is built and the frame range is final; the export replays the sim (deterministic, matches bakes); split impact/snow entries so flake landings can map to softer sound layers |
 | Fog + Sky / Lightning | Extras created with the preset | Turn off if you light the scene yourself |
 
@@ -39,11 +41,11 @@ Derived Physics (sub-panel) shows what the preset produced: particle count, mean
 |---|---|---|
 | Morning macro shots | Dew | Beads on up-facing surfaces of colliders; density per m2 with a hard cap of 200,000 beads. Collide only the object you are photographing |
 | Fine mist-like rain | Drizzle | Many tiny, slow drops, no splash |
-| Standard rain | Light / Moderate / Heavy | Splash count and fog grow with intensity |
+| Standard rain | Light / Moderate / Heavy | Each drop splashes by its own size and speed, so light rain barely splashes and heavy rain splashes hard, with crowns on up-facing surfaces; from heavy rain up a low spray mist hangs over the ground; fog grows with the rate |
 | Cloudburst | Downpour | Reduce Quality for the viewport; the fog density is high |
 | Storm | Thunderstorm, Wind-Driven Rain | Gusts are noise-based; lightning flashes are keyframed |
 | Ice | Freezing Rain, Sleet, Hailstorm | Sleet and hail bounce off colliders (restitution, max bounces) |
-| Snow | Light Snow, Heavy Snow, Blizzard | Flakes stick and recycle; up-facing surfaces accumulate a snow cover (Wetness toggle + helper *Snow Rate* / *Snow Depth*) |
+| Snow | Light Snow, Heavy Snow, Blizzard | Flakes stick and recycle. With Wetness on, exposed up-facing surfaces are snow-covered (*Already Snowy*) or snow over, light snow partly and heavy snow fully, with bare ground under shelter and in the lee of buildings; landing flakes add on top (helper *Snow Rate* / *Snow Depth*). Flakes glow in front of lights; *Distant Rain* adds far flakes |
 
 ## 4. Viewport vs render
 
@@ -59,18 +61,24 @@ frame range; *Packed cache* stores the result inside the .blend, otherwise the b
 replay is exact over the baked range, and a partial bake that stops early should be re-run (or the file reloaded)
 if your render range extends past it. *Delete* frees disk files and packed data; playback then re-simulates live.
 Tick *Background bake* (disk bakes only) to bake in a second Blender process and keep working: live progress
-shows in the panel while the bake runs.
-A baked simulation is the only reliable way to get identical frames across render nodes.
+shows in the panel while the bake runs; it bakes the scene as it is now, unsaved changes included.
+
+*Bake* also bakes the wetness and snow cover on every collider (each in its own folder under `wetness/` for disk
+bakes), so the baked file renders the same rain, wet ground, puddles and drips on a machine without RainFX:
+**bake before sending a scene to a render farm.** A farm renders frames out of order, and an unbaked simulation
+only advances when the frames are played in sequence. After changing wetness settings, bake again.
 
 ## 6. Rendering tips
 
 | Topic | Advice |
 |---|---|
 | Motion blur | Streak length already represents the shutter. Renderer motion blur cannot paint real trails — sim zones step whole frames, so every shutter sample sees identical geometry; best off to avoid double blur on colliders |
-| Visual Scale | Increase for wide shots (drops are sub-pixel), reduce for close-ups |
-| Fog | The fog cube must enclose the camera view; in EEVEE check volumetric resolution and end distance |
-| Lights | Rain is nearly invisible without a light behind it. Rim or back lights and bright backgrounds reveal streaks. Street lamps in a dark scene are the classic setup |
-| Materials | `RainFX Water`, `RainFX Splash`, `RainFX Ice`, `RainFX Snow`, `RainFX Dew` are normal Principled materials; edit them freely |
+| Visual Scale | Widens far drops so they still cover a pixel; within 2 m of the active camera drops keep their true size, so close-ups need no change. Raise it for very wide shots |
+| Fog | The fog box reaches 3 x the rain volume and fades out at its sides and top; in EEVEE check volumetric resolution and end distance |
+| Lights | Rain is lit from behind, like real drops: bright in front of a lamp or a bright background, nearly invisible against the sky or with the light behind the camera (the materials have no glow of their own). *Scene Integration > Add Rain Backlight* places a hard spot beyond the rain shining back toward the active camera; pick *Street Lamp*, *Moonlight* or *Neutral* and run it again after moving the camera. Bright backgrounds and practical lights behind the rain work the same way |
+| Fog and glow | Rain presets set their fog from the rain rate, so heavier rain is more veiled; the compositor glow around lights grows with the rate too |
+| Wet surfaces | Wet surfaces darken by their porosity (rough stone and asphalt a lot, metal not at all), keep their colour and textures and turn glossy (a water film), so lamps streak on wet asphalt; puddles turn into near mirrors and hide the normal map |
+| Materials | `RainFX Ice`, `RainFX Snow`, `RainFX Dew` and `RainFX Drop` are Principled materials; `RainFX Water`, `RainFX Splash`, `RainFX Distant` and `RainFX Near` are translucent + gloss streak shaders (alpha from a per-streak jitter). Edit them freely; a RainFX upgrade resets them |
 | Lightning | The `RainFX Lightning` light is an area light high above the volume. Change Energy and position to taste |
 | Compositor | *Create Compositor Post* adds a glow chain only if the scene has no compositor nodes |
 
@@ -103,7 +111,10 @@ act on legacy particles. It uses one mean drop size and straight paths at the me
 | Rain frozen or in the wrong place after moving the emitter | Parenting the emitter to a moving object | Leave the emitter unparented; set *Follow Object* (plus a Z *Follow Offset*) to the moving object or camera |
 | Moving colliders don't push splashes | *Collider Push* (Impact panel) reduced to 0, or colliders changed mid-simulation | Raise *Collider Push*; changing the collider collection mid-sim costs one step of velocity accuracy |
 | Rain passes through an object | Object is not in `RainFX Colliders`, or it is not a mesh | Add Selected as Colliders; convert curves and text to mesh |
-| Rain inside buildings at frame 1 | Particles are seeded inside colliders | Start the timeline earlier; they recycle within about 2 s |
+| Rain under a roof right at frame 1 | Wind: small drops really are blown under roof edges | Reduce *Wind*; drops are never seeded under a roof or inside a closed shape |
+| Ground under a roof or awning is wet | The roof is not a collider, or the simulation started before the roof was moved (exposure is read at the start frame) | Add the roof as a collider; go back to the start frame |
+| Wetness missing on the render farm | The scene was not baked | *Bake* (it bakes the wetness too), save, send the baked file |
+| No drips | No exposed edge with 0.3 m of air below it, or the preset is not rain | Check the roof edge is a collider; drips need rain presets |
 | Viewport slow | Too many particles or dense colliders | Lower Quality or Viewport Density, use proxy colliders |
 | *Bake* errors | Unsaved file (disk bake) or no active emitter | Save the .blend and select an emitter; *Packed cache* also works on unsaved scenes |
 | Dew looks too sparse or too dense | Density is per m2 and capped at 200,000 total | Edit `Density` / `Max Beads` in the modifier |
@@ -177,7 +188,7 @@ materials from `velocity`, or compute wetness from where `kind == 1` splashes oc
 
 - **Engine ids.** In 5.0 the EEVEE engine id is `BLENDER_EEVEE` (the `_NEXT` suffix is gone; checked: the only EEVEE id in 5.0.1). `compat.eevee_engine_id()` returns the right one.
 - **EEVEE / Cycles.** The materials are plain Principled BSDF graphs and work in both. Water and splash materials use `surface_render_method = 'BLENDED'` for alpha streaks.
-- **Fog.** A cube with a Volume Scatter material (Density from the preset, Anisotropy 0.3). Renders as a volume in both engines. In EEVEE, volumetric resolution and the clip distance must cover the cube.
+- **Fog.** A cube with a Volume Scatter material (Density from the preset, following the rain rate for rain presets; Anisotropy 0.3). Renders as a volume in both engines. In EEVEE, volumetric resolution and the clip distance must cover the cube.
 - **Lightning.** An area light keyframed with constant interpolation. Increase `Energy` for large scenes; the value is in watts and depends on distance.
 - **Motion blur.** Streaks already include the shutter blur, and renderer motion blur cannot add real trails: simulation zones step whole frames, so shutter samples see identical geometry (verified in Blender 5.2.1 — identical renders with blur on/off in both Cycles and EEVEE; noted in PHYSICS.md section 5).
 - **Not render-tested.** No image was rendered while building v0.1; tune the materials in your scene.
@@ -188,7 +199,7 @@ materials from `velocity`, or compute wetness from where `kind == 1` splashes oc
 
 - creates `RainFX Post` only when the scene has no compositor nodes (checked: a second call returns `None` and leaves the tree alone),
 - 5.0+: Render Layers -> Glare -> Group Output with an `Image` output socket; <5.0: Composite node (checked on 5.0.1 only),
-- setting the Glare type and strength is attempted through both the old property and the new socket and silently falls back to defaults if neither is accepted. Check the result in your 5.2.1 compositor.
+- setting the Glare type and strength is attempted through both the old property and the new socket and silently falls back to defaults if neither is accepted. Check the result in your compositor.
 
 ### 5. Extension packaging
 

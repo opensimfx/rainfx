@@ -7,12 +7,13 @@ any impact stay dry.
 Checks (headless, Blender 5.2.1):
   1. helper group builds, two helpers attach, Emitter socket wired;
   2. before any rain the attribute is all zero;
-  3. after 24 frames some faces carry rainfx_wet above 0.3 while other faces
-     of the ground stay below 0.05;
+  3. after 24 frames some face corners carry rainfx_wet above 0.3 while others
+     on the ground stay below 0.05; corners sharing a ground vertex agree
+     (smooth across faces, no tiles);
   4. pools: rainfx_pool fills on flat up-facing faces (ground + cube top)
      but the cube's vertical sides stay un-pooled (flatness gate);
   5. toggling wetness off removes every RainFX Wetness modifier;
-  6. material wiring: wet + pool + snow attribute links, ripple bump nodes
+  6. material wiring: wet + pool + snow attribute links, ring-ripple group
      and the frame driver wired exactly once;
   7. a light_snow world accumulates rainfx_snow on up-facing verts and the
      post-sim Set Position lifts cube tops by Snow Depth x snow.
@@ -86,14 +87,16 @@ def wet_values(ob) -> list[float]:
 
 
 def pool_splits(ob):
-    """Return (pool values on up faces, pool values on non-up faces)."""
+    """Return (pool on up faces, pool on non-up faces): per face, the max over its corners."""
     dg = bpy.context.evaluated_depsgraph_get()
     me = ob.evaluated_get(dg).to_mesh()
     attr = me.attributes.get("rainfx_pool")
+    assert attr is None or attr.domain == "CORNER", f"pool on {attr.domain}, expected CORNER"
     pools = [d.value for d in attr.data] if attr is not None else []
     ups, downs = [], []
-    for i, poly in enumerate(me.polygons):
-        (ups if poly.normal.z > 0.5 else downs).append(pools[i])
+    for poly in me.polygons:
+        v = max(pools[li] for li in poly.loop_indices) if pools else 0.0
+        (ups if poly.normal.z > 0.5 else downs).append(v)
     ob.evaluated_get(dg).to_mesh_clear()
     return ups, downs
 
@@ -128,13 +131,17 @@ def main() -> None:
     assert compat.get_modifier_input(wmod_ground, "Emitter") == bpy.data.objects.get("RainFX Impacts"), \
         "helper Emitter socket should hold the RainFX Impacts carrier"
     print(f"[Build] {n} helpers attached, Emitter wired OK")
+    # 5 m ground quads cannot show 1 m footprints; the 2 m cube edges can
+    coarse = list(scene.get(wet.COARSE_KEY, []))
+    assert coarse == [GROUND], f"coarse-collider hint wrong: {coarse}"
+    print(f"[Coarse] hint lists {coarse} (edges over 4 x Wet Radius)")
 
     # [Control] before any rain: attribute must be all zero (or absent)
     bpy.context.view_layer.update()
     v0 = wet_values(ground)
     assert v0 and all(abs(a) < 1e-4 for a in v0), \
-        f"ground faces wet before rain (max {max(v0, default=-1):.4f})"
-    print(f"[Control] dry baseline OK ({len(v0)} faces)")
+        f"ground corners wet before rain (max {max(v0, default=-1):.4f})"
+    print(f"[Control] dry baseline OK ({len(v0)} face corners)")
 
     # [Wet] walk 24 frames; hit areas get wet, the ground's far side stays dry
     for f in range(1, 25):
@@ -147,9 +154,20 @@ def main() -> None:
     assert cw > 0.3, f"cube never got wet (max {cw:.4f})"
     far = [a for a in gvals if a < 0.05]
     assert len(far) >= max(1, len(gvals) // 3), \
-        f"whole ground uniformly wet (only {len(far)}/{len(gvals)} dry faces)"
+        f"whole ground uniformly wet (only {len(far)}/{len(gvals)} dry corners)"
     print(f"[Wet] ground max {gw:.3f}, cube max {cw:.3f}, "
-          f"far faces {len(far)}/{len(gvals)} <= 0.05")
+          f"far corners {len(far)}/{len(gvals)} <= 0.05")
+    # smooth: corners of coplanar ground faces meeting at one vertex share a value
+    dg = bpy.context.evaluated_depsgraph_get()
+    gme = ground.evaluated_get(dg).to_mesh()
+    wa = gme.attributes["rainfx_wet"]
+    per_vert = {}
+    for li, loop in enumerate(gme.loops):
+        per_vert.setdefault(loop.vertex_index, []).append(wa.data[li].value)
+    spread = max(max(v) - min(v) for v in per_vert.values())
+    ground.evaluated_get(dg).to_mesh_clear()
+    assert spread < 1e-5, f"ground corners at one vertex disagree by {spread:.5f} (tiles)"
+    print(f"[Smooth] coplanar corners agree at every ground vertex (spread {spread:.1e})")
 
     # [Puddles] pool fills on flat up-facing spots, not on vertical walls
     gu, _gd = pool_splits(ground)
@@ -184,13 +202,16 @@ def main() -> None:
         f"wet wiring not idempotent ({first}, {second})"
     types = [n.type for n in mat.node_tree.nodes]
     assert types.count("ATTRIBUTE") >= 3, "wet+pool+snow Attribute nodes missing"
-    assert types.count("TEX_NOISE") >= 1 and types.count("BUMP") >= 1, \
-        "ripple bump chain missing"
-    ad = mat.node_tree.animation_data
+    rip = [n for n in mat.node_tree.nodes if n.type == "GROUP" and n.node_tree is not None
+           and n.node_tree.name == materials.RIPPLES_NAME]
+    assert rip and types.count("BUMP") >= 1, "ring-ripple bump chain missing"
+    rtypes = [n.type for n in rip[0].node_tree.nodes]
+    assert rtypes.count("TEX_VORONOI") == 4, "four Lagarde ring layers expected"
+    ad = rip[0].node_tree.animation_data
     dj = [(fc.data_path, fc.driver.expression) for fc in (ad.drivers if ad else [])]
     assert any("frame" in expr for _p, expr in dj), \
         f"ripple time driver missing ({dj})"
-    print("[Material] wet links wired once, ripple bump + frame driver present")
+    print("[Material] wet links wired once, ring ripples (4 layers) + frame driver present")
 
     # [Snow] a light_snow world accumulates flakes and lifts up-facing verts
     # compact box: the top is 4/16 of the footprint and flakes fall from just

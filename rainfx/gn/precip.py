@@ -4,8 +4,8 @@ Pipeline (see docs/SYSTEM_DESIGN.md):
 
   INIT   Points in a box -> diameter (truncated exponential / Marshall-Palmer),
          terminal speed vt(D, mode), relaxation time tau, initial velocity.
-         +-Z ray-parity against the colliders removes start points inside
-         enclosed volumes.
+         A ray back along each drop's fall direction removes start points
+         sheltered by a collider (under roofs, inside closed shapes).
   SIM    per step (Simulation Zone, dt from Delta Time):
            1. split primaries / splash droplets
            2. primaries: v <- v_target + (v - v_target) exp(-dt / tau)
@@ -13,6 +13,10 @@ Pipeline (see docs/SYSTEM_DESIGN.md):
            3. Raycast along the step against a velocity-annotated copy of the
               Colliders collection, sampling "rainfx_velocity" at the hit
               hit -> bounce (hail) | land+recycle (rain, snow) [+ splash spawn]
+              splash per drop: K = We Oh^-2/5 from its own diameter and impact
+              speed; above the threshold K_S it throws a stochastic number of
+              droplets (mean grows with log K/K_S) and, on up-facing faces,
+              one short-lived crown ring
            4. wrap horizontally in the box, recycle below the floor
            5. splash droplets: ballistic, aged, deleted at end of life
   OUTPUT instances aligned to velocity, stretched by shutter time (streaks),
@@ -41,10 +45,11 @@ from __future__ import annotations
 
 import bpy
 
-from .dsl import B
+from ..core import physics as PH
+from .dsl import B, ensure_versioned
 
 GROUP_NAME = "RainFX Precipitation"
-GROUP_VERSION = 8
+GROUP_VERSION = 11  # 11 (1.0): sheltered start points removed (ray up-wind), true-size drops near the camera; 10 (0.4): per-drop splash threshold K = We Oh^-2/5, flared crown rings
 E = 2.718281828459045
 
 
@@ -52,9 +57,7 @@ def ensure_group() -> bpy.types.NodeTree:
     ng = bpy.data.node_groups.get(GROUP_NAME)
     if ng is not None and ng.get("rainfx_version") == GROUP_VERSION:
         return ng
-    if ng is not None:
-        bpy.data.node_groups.remove(ng)
-    return build()
+    return ensure_versioned(ng, GROUP_NAME, build)
 
 
 def build() -> bpy.types.NodeTree:
@@ -101,7 +104,14 @@ def build() -> bpy.types.NodeTree:
     b.add_input("Max Bounces", "NodeSocketInt", 0, 0, 20, p)
     b.add_input("Collider Push", "NodeSocketFloat", 1.0, 0.0, 2.0, p,
                 "Share of the collider's motion (rainfx_velocity attribute) that moving colliders give to splashes and bounces")
-    b.add_input("Splash Amount", "NodeSocketInt", 2, 0, 12, p)
+    b.add_input("Splash Amount", "NodeSocketInt", 2, 0, 12, p,
+                "Splash droplets thrown by a 2 mm drop landing at terminal speed; smaller or slower "
+                "drops throw fewer (none below the threshold), bigger ones up to twice as many")
+    b.add_input("Splash Threshold", "NodeSocketFloat", PH.SPLASH_K_THIN_FILM, 10.0, 100000.0, p,
+                "Splashing parameter K_S: a drop splashes when K = We Oh^-2/5 is above it. "
+                "2100 = thin wet film; deeper water raises it (2100 + 5880 H^1.44)")
+    b.add_input("Crowns", "NodeSocketBool", True, parent=p,
+                desc="Splashing drops on up-facing surfaces leave a short crown ring (0.1 s)")
     b.add_input("Splash Speed", "NodeSocketFloat", 1.2, 0.0, 20.0, p)
     b.add_input("Splash Life Min", "NodeSocketFloat", 0.15, 0.01, 5.0, p)
     b.add_input("Splash Life Max", "NodeSocketFloat", 0.4, 0.01, 5.0, p)
@@ -181,26 +191,18 @@ def build() -> bpy.types.NodeTree:
                           ("age", 0.0, "FLOAT"), ("life", 0.0, "FLOAT"), ("bounces", 0.0, "FLOAT")):
         geo = b.store(geo, name, val, dt)
 
-    # reject start points inside a collider: a +-Z ray-parity test - a point
-    # in an enclosed volume gets Is Hit in both directions (open-top shapes
-    # like cups stay undetected; respawned points are never re-checked)
+    # reject sheltered start points: a ray from the point back along its fall
+    # direction (up, and into the wind) that meets a collider means no drop
+    # could have reached it - under a roof, beneath a canopy or inside a
+    # closed shape. Without this the box starts full of rain under every
+    # shelter and the ground beneath it gets wet for the first second.
     in_pos = b.node("GeometryNodeInputPosition").outputs[0]
-    up_hit = down_hit = None
-    for direction in ((0.0, 0.0, 1.0), (0.0, 0.0, -1.0)):
-        rc = b.node("GeometryNodeRaycast", data_type="FLOAT")
-        b.put(rc.inputs["Target Geometry"], collider_geo)
-        b.put(rc.inputs["Source Position"], in_pos)
-        b.put(rc.inputs["Ray Direction"], direction)
-        b.put(rc.inputs["Ray Length"], 100.0)
-        is_hit = rc.outputs["Is Hit"]
-        if up_hit is None:
-            up_hit = is_hit
-        else:
-            down_hit = is_hit
-    inside = b.node("FunctionNodeBooleanMath", operation="AND")
-    b.put(inside.inputs[0], up_hit)
-    b.put(inside.inputs[1], down_hit)
-    geo = b.delete(geo, inside.outputs["Boolean"])
+    rc = b.node("GeometryNodeRaycast", data_type="FLOAT")
+    b.put(rc.inputs["Target Geometry"], collider_geo)
+    b.put(rc.inputs["Source Position"], in_pos)
+    b.put(rc.inputs["Ray Direction"], b.vscale(b.vm("NORMALIZE", vel0), -1.0))
+    b.put(rc.inputs["Ray Length"], 1000.0)
+    geo = b.delete(geo, rc.outputs["Is Hit"])
 
     # ------------------------------------------------------------------ SIM
     sim_in = b.node("GeometryNodeSimulationInput")
@@ -300,14 +302,31 @@ def build() -> bpy.types.NodeTree:
     wrapped = b.vm("WRAP", pos_f, b.vm("ADD", b.xyz(hx, hy, 1.0e6), origin),
                    b.vm("ADD", b.xyz(b.fm("MULTIPLY", hx, -1.0), b.fm("MULTIPLY", hy, -1.0), -1.0e6), origin))
     nb_new = b.fm("MULTIPLY", b.fm("SUBTRACT", 1.0, recycle), b.fm("ADD", nb, do_bounce))
-    spawn = b.bool("AND", do_land, b.bool("AND", b.cmp("EQUAL", mode, 0, "INT"),
-                                          b.cmp("GREATER_THAN", GI("Splash Amount"), 0, "INT")))
+    # splash decision per drop (Yarin 2006): K = We Oh^-2/5 from its own diameter
+    # and its speed relative to the collider; mean droplet count grows with
+    # log(K / K_S), capped at 2x Splash Amount, rounded stochastically per impact
+    v_imp = b.vlen(b.vm("SUBTRACT", vnew, cvel))
+    d_m = b.fm("MULTIPLY", D, 0.001)
+    we = b.fm("MULTIPLY", b.fm("MULTIPLY", d_m, b.fm("MULTIPLY", v_imp, v_imp)),
+              PH.RHO_WATER / PH.SIGMA_WATER)
+    oh = b.fm("DIVIDE", PH.MU_WATER, b.fm("SQRT", b.fm("MULTIPLY", d_m, PH.RHO_WATER * PH.SIGMA_WATER)))
+    k_imp = b.fm("MULTIPLY", we, b.fm("POWER", b.fm("MAXIMUM", oh, 1e-9), -0.4))
+    ratio = b.fm("DIVIDE", k_imp, b.fm("MAXIMUM", GI("Splash Threshold"), 1.0))
+    n_mean = b.fm("MULTIPLY", GI("Splash Amount"), b.fm(
+        "MINIMUM", b.fm("MAXIMUM", b.fm("DIVIDE", b.fm("LOGARITHM", b.fm("MAXIMUM", ratio, 1e-6), E),
+                                         PH._SPLASH_LOG_REF), 0.0), 2.0))
+    n_splash = b.fm("FLOOR", b.fm("ADD", n_mean, b.rand(0.0, 1.0, b.fm("ADD", rseed, 211))))
+    is_rain_land = b.bool("AND", do_land, b.cmp("EQUAL", mode, 0, "INT"))
+    spawn = b.bool("AND", is_rain_land, b.cmp("GREATER_THAN", n_splash, 0.5))
+    crown = b.bool("AND", b.bool("AND", is_rain_land, b.cmp("GREATER_THAN", ratio, 1.0)),
+                   b.bool("AND", GI("Crowns"), b.cmp("GREATER_THAN", b.sep(hit_n)[2], 0.5)))
 
     # --- freeze every field before touching the geometry ---------------------
     cap = b.node("GeometryNodeCaptureAttribute")
     items = (("n_pos", "VECTOR", wrapped), ("n_vel", "VECTOR", vel_f), ("n_b", "FLOAT", nb_new),
              ("hp", "VECTOR", hit_pos), ("hn", "VECTOR", hit_n), ("v_in", "VECTOR", vnew),
-             ("cv", "VECTOR", cvel), ("spawn", "BOOLEAN", spawn))
+             ("cv", "VECTOR", cvel), ("spawn", "BOOLEAN", spawn), ("n_sp", "FLOAT", n_splash),
+             ("k", "FLOAT", k_imp), ("vimp", "FLOAT", v_imp), ("crown", "BOOLEAN", crown))
     for name, st, val in items:
         cap.capture_items.new(st, name)
         b.put(b.sin(cap, name), val)
@@ -333,7 +352,7 @@ def build() -> bpy.types.NodeTree:
     src, _ = b.separate(Pc, C["spawn"])
     dup = b.node("GeometryNodeDuplicateElements", domain="POINT")
     b.links.new(src, dup.inputs["Geometry"])
-    b.put(dup.inputs["Amount"], GI("Splash Amount"))
+    b.put(dup.inputs["Amount"], C["n_sp"])
     SP = dup.outputs["Geometry"]
 
     r1 = b.rand(0.0, 1.0, b.fm("ADD", rseed, 201))
@@ -343,8 +362,10 @@ def build() -> bpy.types.NodeTree:
     n_ = C["hn"]
     r_tan = b.vm("SUBTRACT", rv, b.vscale(n_, b.vdot(rv, n_)))
     d_out = b.vm("NORMALIZE", b.vm("ADD", b.vscale(n_, b.fm("MULTIPLY_ADD", r1, 0.8, 0.6)), r_tan))
+    # harder impacts throw faster droplets: (K / K_ref)^1/4, 1 for the 2 mm reference drop
     sp_speed = b.fm("MULTIPLY", b.fm("MULTIPLY", GI("Splash Speed"), b.fm("MULTIPLY_ADD", r2, 1.2, 0.4)),
-                    b.fm("MINIMUM", b.fm("MAXIMUM", b.fm("DIVIDE", D, 2.0), 0.5), 2.0))
+                    b.fm("MINIMUM", b.fm("MAXIMUM", b.fm("POWER", b.fm("DIVIDE", C["k"], PH.SPLASH_K_REF), 0.25),
+                                                    0.5), 2.0))
     sp_vel = b.vm("ADD", b.vscale(d_out, sp_speed),
                   b.vm("ADD", b.vscale(wind, 0.2), C["cv"]))
     life = b.rand(GI("Splash Life Min"), GI("Splash Life Max"), b.fm("ADD", rseed, 401))
@@ -360,13 +381,24 @@ def build() -> bpy.types.NodeTree:
     # sink floods with splash blobs that never collide (stamp below ground)
     SP = b.store(SP, "imp", 0.0, "FLOAT")
 
-    # --- splash update (ballistic) --------------------------------------------
-    SJ = b.join(S0, SP)
+    # --- crown rings: one static point per splashing impact on an up-facing face,
+    # rendered as an open ring whose radius grows ~ sqrt(age) (see OUTPUT)
+    CRs, _ = b.separate(Pc, C["crown"])
+    CR = b.set_position(CRs, position=b.vm("ADD", C["hp"], b.vscale(n_, 0.001)))
+    for name, val, dtp in (("velocity", (0.0, 0.0, 0.0), "FLOAT_VECTOR"), ("life", PH.CROWN_LIFE_S, "FLOAT"),
+                           ("kind", 1.0, "FLOAT"), ("age", 0.0, "FLOAT"), ("imp", 0.0, "FLOAT"),
+                           ("crown", 1.0, "FLOAT"), ("nrm", C["hn"], "FLOAT_VECTOR"),
+                           ("vimp", C["vimp"], "FLOAT")):
+        CR = b.store(CR, name, val, dtp)
+
+    # --- splash update (ballistic; crowns stay put) -----------------------------
+    SJ = b.join(S0, SP, CR)
+    moving = b.cmp("LESS_THAN", b.attr("crown"), 0.5)
     sv = b.attr("velocity", "FLOAT_VECTOR")
     sv_new = b.vm("ADD", sv, b.xyz(0.0, 0.0, b.fm("MULTIPLY", g, b.fm("MULTIPLY", dt, -1.0))))
     spos = b.node("GeometryNodeInputPosition").outputs[0]
-    SJ = b.set_position(SJ, position=b.vm("ADD", spos, b.vscale(sv_new, dt)))
-    SJ = b.store(SJ, "velocity", sv_new, "FLOAT_VECTOR")
+    SJ = b.set_position(SJ, position=b.vm("ADD", spos, b.vscale(sv_new, dt)), sel=moving)
+    SJ = b.store(SJ, "velocity", sv_new, "FLOAT_VECTOR", sel=moving)
     age = b.attr("age")
     SJ = b.store(SJ, "age", b.fm("ADD", age, dt))
     SJ = b.delete(SJ, b.cmp("GREATER_THAN", b.attr("age"), b.attr("life")))
@@ -387,7 +419,17 @@ def build() -> bpy.types.NodeTree:
     prim, spl = b.separate(state_pts, b.cmp("LESS_THAN", b.attr("kind"), 0.5))
     pv = b.attr("velocity", "FLOAT_VECTOR")
     pd = b.attr("diameter")
-    width = b.fm("MULTIPLY", b.fm("MULTIPLY", pd, 0.001), GI("Visual Scale"))
+    # Visual Scale only where it is needed: it exists so millimetre drops still
+    # cover a pixel or two far away. Applied at every distance it turned drops
+    # passing the lens into finger-thick sticks. The effective factor grows
+    # with distance to the active camera, dist / NEAR (1 = true size up close),
+    # capped at Visual Scale, which keeps a streak about the same on-screen
+    # width from NEAR outwards.
+    cam_oi = b.node("GeometryNodeObjectInfo", transform_space="RELATIVE")
+    b.links.new(b.node("GeometryNodeInputActiveCamera").outputs[0], cam_oi.inputs["Object"])
+    cam_d = b.vlen(b.vm("SUBTRACT", b.node("GeometryNodeInputPosition").outputs[0], cam_oi.outputs["Location"]))
+    vis = b.fm("MINIMUM", b.fm("MAXIMUM", b.fm("DIVIDE", cam_d, PH.VISUAL_SCALE_NEAR_M), 1.0), GI("Visual Scale"))
+    width = b.fm("MULTIPLY", b.fm("MULTIPLY", pd, 0.001), vis)
     length = b.fm("MAXIMUM", b.fm("MULTIPLY", b.vlen(pv), GI("Shutter")), width)
     align = b.node("FunctionNodeAlignRotationToVector", axis="Z")
     b.put(b.sin(align, "Vector"), pv)
@@ -409,7 +451,8 @@ def build() -> bpy.types.NodeTree:
     b.put(inst.inputs["Rotation"], b.sout(align, "Rotation"))
     b.put(inst.inputs["Scale"], b.xyz(width, width, length))
 
-    sw = b.fm("MULTIPLY", b.fm("MULTIPLY", b.attr("diameter"), 0.001), GI("Visual Scale"))
+    crowns, spl = b.separate(spl, b.cmp("GREATER_THAN", b.attr("crown"), 0.5))
+    sw = b.fm("MULTIPLY", b.fm("MULTIPLY", b.attr("diameter"), 0.001), vis)
     ico2 = b.node("GeometryNodeMeshIcoSphere")
     b.put(ico2.inputs["Radius"], 0.5)
     b.put(ico2.inputs["Subdivisions"], 1)
@@ -421,11 +464,37 @@ def build() -> bpy.types.NodeTree:
     b.put(inst2.inputs["Instance"], spl_mat.outputs["Geometry"])
     b.put(inst2.inputs["Scale"], b.xyz(sw, sw, sw))
 
-    rendered = b.join(inst.outputs["Instances"], inst2.outputs["Instances"])
+    # crown: open ring standing on the surface, R = 0.5 sqrt(D V age) (= D/2 sqrt(V t / D)),
+    # height 0.57 R; enlarged by sqrt(effective Visual Scale): true size up close
+    # a crown flares outward (thin sheet rising from the impact ring): open cone,
+    # rim radius R at the top, half that at the base
+    ring = b.node("GeometryNodeMeshCone", fill_type="NONE")
+    b.put(ring.inputs["Vertices"], 16)
+    b.put(ring.inputs["Radius Top"], 1.0)
+    b.put(ring.inputs["Radius Bottom"], 0.5)
+    b.put(ring.inputs["Depth"], 1.0)
+    lift = b.node("GeometryNodeTransform")
+    b.links.new(ring.outputs["Mesh"], lift.inputs["Geometry"])
+    b.put(lift.inputs["Translation"], (0.0, 0.0, 0.5))      # base on the surface
+    crown_mat = b.node("GeometryNodeSetMaterial")
+    b.links.new(lift.outputs["Geometry"], crown_mat.inputs["Geometry"])
+    b.put(crown_mat.inputs["Material"], GI("Splash Material"))
+    c_r = b.fm("MULTIPLY", b.fm("MULTIPLY", 0.5, b.fm("SQRT", b.fm("MULTIPLY", b.fm(
+        "MULTIPLY", b.attr("diameter"), 0.001), b.fm("MULTIPLY", b.attr("vimp"), b.attr("age"))))),
+        b.fm("SQRT", vis))
+    c_align = b.node("FunctionNodeAlignRotationToVector", axis="Z")
+    b.put(b.sin(c_align, "Vector"), b.attr("nrm", "FLOAT_VECTOR"))
+    inst3 = b.node("GeometryNodeInstanceOnPoints")
+    b.links.new(crowns, inst3.inputs["Points"])
+    b.put(inst3.inputs["Instance"], crown_mat.outputs["Geometry"])
+    b.put(inst3.inputs["Rotation"], b.sout(c_align, "Rotation"))
+    b.put(inst3.inputs["Scale"], b.xyz(c_r, c_r, b.fm("MULTIPLY", c_r, PH.CROWN_HEIGHT_RATIO)))
+
+    rendered = b.join(inst.outputs["Instances"], inst2.outputs["Instances"], inst3.outputs["Instances"])
     pv1 = b.node("GeometryNodePointsToVertices")
     b.links.new(prim, pv1.inputs["Points"])
     pv2 = b.node("GeometryNodePointsToVertices")
-    b.links.new(spl, pv2.inputs["Points"])
+    b.links.new(b.join(spl, crowns), pv2.inputs["Points"])
     verts = b.join(pv1.outputs["Mesh"], pv2.outputs["Mesh"])
     # impact-events sink: an invisible mesh of real vertices at every landing
     # position (zero-area, renders nothing). Wetness helpers on colliders read

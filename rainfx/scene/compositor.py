@@ -67,11 +67,20 @@ _LENS_SIZE = 128  # droplet field resolution (square): 256px+ generated
                   # maps sample as black in the 5.2 compositor — keep 128
 
 
-def _lens_image(name: str, seed: int, strength: float) -> bpy.types.Image:
+LENS_MAP_VERSION = 2   # 2 (0.4): sliding drops with trails and flat bottoms on map B
+
+
+def _lens_image(name: str, seed: int, strength: float, sliding: bool = False) -> bpy.types.Image:
     """Build (or restrength) one droplet displacement map: ~30 blobs, a few
-    stretched into drip streaks; RGB = radial push, alpha = droplet mask."""
+    stretched into drip streaks; RGB = radial push, alpha = droplet mask.
+
+    ``sliding`` (the faster layer): drops are a little taller than wide with a
+    flatter bottom, and half of them drag a thin, tapering wet trail above
+    them (rain-on-glass look: sliding drops leave a streak, static ones don't).
+    """
     img = bpy.data.images.get(name)
-    if img is not None and abs(float(img.get("rainfx_strength", -1.0)) - strength) <= 0.02:
+    if (img is not None and abs(float(img.get("rainfx_strength", -1.0)) - strength) <= 0.02
+            and img.get("rainfx_lens_version") == LENS_MAP_VERSION):
         return img
     w = h = _LENS_SIZE
     buf = [0.0] * (w * h * 4)
@@ -81,6 +90,26 @@ def _lens_image(name: str, seed: int, strength: float) -> bpy.types.Image:
         cx, cy = rng.random(), rng.random()
         r = rng.uniform(0.03, 0.09)
         ry = r * (rng.uniform(3.0, 7.0) if rng.random() < 0.25 else 1.0)
+        if sliding:
+            ry = max(ry, r * 1.15)
+            if rng.random() < 0.5:     # wet trail above the drop (pixel rows grow upward)
+                tl = r * rng.uniform(4.0, 8.0)
+                tw = r * 0.3
+                tx0, tx1 = max(0, int((cx - tw) * w)), min(w, int((cx + tw) * w) + 1)
+                ty0, ty1 = max(0, int(cy * h)), min(h, int((cy + tl) * h) + 1)
+                for py in range(ty0, ty1):
+                    along = (py / h - cy) / tl              # 0 at the drop .. 1 at the tail end
+                    half = tw * (1.0 - along)                # tapers toward the top
+                    if half <= 0:
+                        continue
+                    for px in range(tx0, tx1):
+                        nx = (px / w - cx) / half
+                        if abs(nx) >= 1.0:
+                            continue
+                        s = 0.35 * (1.0 - abs(nx)) * (1.0 - along)
+                        i = (py * w + px) * 4
+                        buf[i] += nx * amp * 0.3 * s
+                        buf[i + 3] = max(buf[i + 3], s)
         x0 = max(0, int((cx - r) * w))
         x1 = min(w, int((cx + r) * w) + 1)
         y0 = max(0, int((cy - ry) * h))
@@ -89,7 +118,8 @@ def _lens_image(name: str, seed: int, strength: float) -> bpy.types.Image:
             ny = (py / h - cy) / ry
             for px in range(x0, x1):
                 nx = (px / w - cx) / r
-                d2 = nx * nx + ny * ny
+                nyb = ny * 1.4 if sliding and ny < 0 else ny     # flatter bottom
+                d2 = nx * nx + nyb * nyb
                 if d2 >= 1.0:
                     continue
                 s = (1.0 - d2 ** 0.5) ** 0.7
@@ -103,11 +133,38 @@ def _lens_image(name: str, seed: int, strength: float) -> bpy.types.Image:
         # the Displace stage as an exact no-op
         img = bpy.data.images.new(name, w, h, alpha=True, float_buffer=True)
     img.pixels.foreach_set(buf)
+    # pack as float EXR: a generated image's pixels are not saved with the
+    # .blend, so the maps came back blank after reopening (and on a farm)
+    img.file_format = "OPEN_EXR"
+    img.alpha_mode = "CHANNEL_PACKED"   # RGB is displacement, A a mask: never (un)premultiply
+    try:
+        img.use_half_precision = False
+    except AttributeError:
+        pass
+    img.pack()
     img["rainfx_strength"] = strength
+    img["rainfx_lens_version"] = LENS_MAP_VERSION
     return img
 
 
-def apply_lens(scene: bpy.types.Scene, strength: float = 1.0):
+def set_glare(scene: bpy.types.Scene, strength: float) -> bool:
+    """Update the Fog Glow strength of RainFX's own post chain (rain-rate halos).
+
+    Foreign compositing trees are never touched. Returns True when a glare
+    node was updated.
+    """
+    tree = compat.get_compositing_tree(scene, create=False)
+    if tree is None or not tree.get("rainfx_post"):
+        return False
+    done = False
+    for n in tree.nodes:
+        if n.bl_idname == "CompositorNodeGlare" and "Strength" in n.inputs:
+            n.inputs["Strength"].default_value = strength
+            done = True
+    return done
+
+
+def apply_lens(scene: bpy.types.Scene, strength: float = 1.0, glare_strength: float = 0.25):
     """Insert (or refresh) the droplet-lens stage in the RainFX post chain.
 
     Returns the compositing tree, or None when the scene carries a foreign
@@ -115,16 +172,20 @@ def apply_lens(scene: bpy.types.Scene, strength: float = 1.0):
     """
     tree = compat.get_compositing_tree(scene, create=False)
     if tree is None or len(tree.nodes) == 0:
-        tree = create_post(scene)
+        tree = create_post(scene, glare_strength=glare_strength)
         if tree is None:
             return None
     elif not tree.get("rainfx_post") and not any(
             n.get("rainfx_lens") for n in tree.nodes):
         return None
+    lens_nodes = [n for n in tree.nodes if n.get("rainfx_lens")]
+    if lens_nodes and not any(n.bl_idname == "CompositorNodeBlur" for n in lens_nodes):
+        remove_lens(scene)   # a 0.3 stage (no blur inside drops): rebuild it whole
     # refresh droplet maps for the new strength (cheap no-op when unchanged)
     img_a = _lens_image(LENS_A, 1, strength)
-    img_b = _lens_image(LENS_B, 2, strength)
+    img_b = _lens_image(LENS_B, 2, strength, sliding=True)
     if any(n.get("rainfx_lens") for n in tree.nodes):
+        _set_lens_blur(scene, tree, strength)
         return tree  # already installed: maps were refreshed above
     rl = next((n for n in tree.nodes if n.bl_idname == "CompositorNodeRLayers"), None)
     glare = next((n for n in tree.nodes if n.bl_idname == "CompositorNodeGlare"), None)
@@ -168,10 +229,53 @@ def apply_lens(scene: bpy.types.Scene, strength: float = 1.0):
     lk(tb.outputs["Image"], aover.inputs["Foreground"])
     lk(aover.outputs["Image"], disp.inputs["Displacement"])
     lk(rl.outputs["Image"], disp.inputs["Image"])
-    lk(disp.outputs["Image"], glare.inputs["Image"])
+    # a drop on the front element is far out of focus: what is seen through it is
+    # refracted AND blurred, the frame around it stays sharp -> mix a blurred copy
+    # of the displaced image in under the droplet mask (map alpha)
+    staged = disp.outputs["Image"]
+    try:
+        sep = tree.nodes.new("CompositorNodeSeparateColor")
+        blur = tree.nodes.new("CompositorNodeBlur")
+        mix = tree.nodes.new("ShaderNodeMix")
+        mix.data_type = "RGBA"
+    except (RuntimeError, TypeError, AttributeError):
+        sep = blur = mix = None
+    if mix is not None:
+        for n in (sep, blur, mix):
+            n["rainfx_lens"] = 1
+        sep.location, blur.location, mix.location = (-60, -280), (-100, 60), (40, 60)
+        lk(aover.outputs["Image"], sep.inputs["Image"])
+        lk(disp.outputs["Image"], blur.inputs["Image"])
+        lk(sep.outputs["Alpha"], mix.inputs["Factor"])
+        lk(disp.outputs["Image"], _mix_in(mix, "A"))
+        lk(blur.outputs["Image"], _mix_in(mix, "B"))
+        staged = _mix_out(mix)
+        _set_lens_blur(scene, tree, strength)
+    lk(staged, glare.inputs["Image"])
     # keep our own chain recognizable for future lens refreshes / removals
     tree["rainfx_post"] = 1
     return tree
+
+
+def _mix_in(mix, name):
+    """Enabled RGBA input of a Mix node by name (the node has one per data type)."""
+    return next(s for s in mix.inputs if s.name == name and s.enabled)
+
+
+def _mix_out(mix):
+    return next(s for s in mix.outputs if s.enabled)
+
+
+def _set_lens_blur(scene, tree, strength: float) -> None:
+    """Blur radius inside the drops: 0.4 % of the frame width x strength."""
+    px = max(2.0, round(0.004 * scene.render.resolution_x * scene.render.resolution_percentage / 100.0
+                        * strength))
+    for n in tree.nodes:
+        if n.get("rainfx_lens") and n.bl_idname == "CompositorNodeBlur":
+            if "Size" in n.inputs:
+                n.inputs["Size"].default_value = (px, px)
+            else:  # pragma: no cover - pre-5.0 property API
+                n.size_x = n.size_y = int(px)
 
 
 def remove_lens(scene: bpy.types.Scene) -> int:

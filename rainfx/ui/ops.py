@@ -6,7 +6,8 @@ import bpy
 
 from .. import compat
 from ..scene import atmosphere, compositor, distant, emitter as em, events, legacy_particles, lighting
-from ..scene import baker
+from ..scene import backlight, baker, drips, foreground
+from ..core import presets as presets_mod
 
 
 def _active_emitter(context):
@@ -28,18 +29,36 @@ def apply_all(context, ob):
                         follow_offset=tuple(s.follow_offset), refraction=s.refraction_drops)
     p = em.all_presets()[s.preset]
     if s.with_atmosphere:
-        fog = atmosphere.create_fog(sc, box=tuple(s.box), density=p.fog_density, anisotropy=p.fog_anisotropy,
+        fog_d = presets_mod.fog_density_for(p)  # rain presets: follows the rain rate
+        fog = atmosphere.create_fog(sc, box=tuple(s.box), density=fog_d, anisotropy=p.fog_anisotropy,
                                     location=tuple(ob.location))
-        atmosphere.set_fog(fog, p.fog_density, p.fog_anisotropy)
+        atmosphere.set_fog(fog, fog_d, p.fog_anisotropy)
         if s.follow_object is not None:  # fog rides along with the follow target
             fog.parent = s.follow_object
             fog.matrix_parent_inverse = s.follow_object.matrix_world.inverted()
+        spray_d = presets_mod.spray_density_for(p)  # heavy rain: low splash-spray mist
+        if spray_d > 0:
+            spray = atmosphere.create_spray(sc, box=tuple(s.box), density=spray_d,
+                                            anisotropy=p.fog_anisotropy, location=tuple(ob.location))
+            if s.follow_object is not None:
+                spray.parent = s.follow_object
+                spray.matrix_parent_inverse = s.follow_object.matrix_world.inverted()
+        else:
+            atmosphere.remove_spray()
         atmosphere.apply_lighting(sc, p.sky_mult, p.sun_mult)
     if s.distant_rain:
         distant.refresh(sc, True, ob=ob, box=tuple(s.box), density=s.distant_density,
                         follow=s.follow_object, seed=s.seed)
+    if s.foreground_rain:
+        foreground.refresh(sc, True, ob=ob, density=s.foreground_density, seed=s.seed)
+    if s.drips:
+        drips.refresh(sc, True, density=s.drip_density, seed=s.seed)   # removed for non-rain presets
+    from ..gn import materials
+    materials.set_ripple_weight(presets_mod.ripple_weight_for(p))  # more puddle rings in heavier rain
+    glare = presets_mod.glare_strength_for(p)
+    compositor.set_glare(sc, glare)  # halos around lights grow with the rain (own post chain only)
     if s.lens_drops:
-        compositor.apply_lens(sc, s.lens_strength)
+        compositor.apply_lens(sc, s.lens_strength, glare_strength=glare)
     else:
         compositor.remove_lens(sc)  # strip a stale lens stage on re-apply (no-op when none)
     if s.with_lightning and p.lightning_per_min > 0:
@@ -137,9 +156,41 @@ class RAINFX_OT_post(bpy.types.Operator):
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
-        if compositor.create_post(context.scene) is None:
+        p = em.all_presets().get(context.scene.rainfx.preset)
+        glare = presets_mod.glare_strength_for(p) if p else 0.25
+        if compositor.create_post(context.scene, glare_strength=glare) is None:
             self.report({"WARNING"}, "Scene already has compositor nodes; left untouched")
             return {"CANCELLED"}
+        return {"FINISHED"}
+
+
+class RAINFX_OT_backlight(bpy.types.Operator):
+    bl_idname = "rainfx.add_backlight"
+    bl_label = "Add Rain Backlight"
+    bl_description = ("Place a hard light behind the rain, shining back toward the active camera. "
+                      "Rain only reads on camera when it is backlit; run again to re-aim after moving the camera")
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        return context.scene.camera is not None
+
+    def execute(self, context):
+        s = context.scene.rainfx
+        obj = backlight.create_backlight(context.scene, context.scene.camera, _active_emitter(context),
+                                         box=tuple(s.box), style=s.backlight_style, strength=s.backlight_strength)
+        self.report({"INFO"}, f"'{obj.name}' placed behind the rain, aimed at {context.scene.camera.name}")
+        return {"FINISHED"}
+
+
+class RAINFX_OT_backlight_remove(bpy.types.Operator):
+    bl_idname = "rainfx.remove_backlight"
+    bl_label = "Remove Backlight"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        if not backlight.remove_backlight():
+            self.report({"INFO"}, "No RainFX backlight in this file")
         return {"FINISHED"}
 
 
@@ -192,7 +243,8 @@ class RAINFX_OT_bake(bpy.types.Operator):
     bl_idname = "rainfx.bake"
     bl_label = "Bake Sim Cache"
     bl_options = {"REGISTER", "UNDO"}
-    bl_description = ("Bake the simulation cache of the active emitter. Packed stores the cache inside the "
+    bl_description = ("Bake the simulation cache of the active emitter and the wetness on its colliders, so the "
+                      "scene renders anywhere (render farms need no RainFX). Packed stores the cache inside the "
                       ".blend; disk files go under <blend folder>/<emitter>_rainfx_bake")
 
     packed: bpy.props.BoolProperty(name="Packed cache",
@@ -249,8 +301,18 @@ class RAINFX_OT_bake(bpy.types.Operator):
             b.use_custom_simulation_frame_range = True
             b.frame_start, b.frame_end = fs, fe
         mod.bake_target = "PACKED" if self.packed else "DISK"
+        # wetness helpers bake in the same pass (the frame handler feeds them
+        # the impacts while Blender steps the frames), so a baked scene renders
+        # anywhere, without RainFX installed
+        from ..scene import wetness
+        objs = [ob]
+        base = None if self.packed else bpy.path.abspath(mod.bake_directory)
+        for h_ob, h_mod in wetness.helpers(sc):
+            wetness.prepare_bake(h_mod, mod.bake_target,
+                                 wetness.helper_bake_dir(base, h_ob) if base else None, fs, fe)
+            objs.append(h_ob)
         try:
-            with context.temp_override(object=ob, active_object=ob, selected_objects=[ob]):
+            with context.temp_override(object=ob, active_object=ob, selected_objects=objs):
                 bpy.ops.object.simulation_nodes_cache_bake(selected=True)
         except Exception as exc:  # missing operator on old builds, disk problems
             self.report({"ERROR"}, f"Bake failed: {exc}")
@@ -272,9 +334,11 @@ class RAINFX_OT_bake_delete(bpy.types.Operator):
 
     def execute(self, context):
         ob = _active_emitter(context)
-        with context.temp_override(object=ob, active_object=ob, selected_objects=[ob]):
+        from ..scene import wetness
+        objs = [ob] + [h_ob for h_ob, _m in wetness.helpers(context.scene)]
+        with context.temp_override(object=ob, active_object=ob, selected_objects=objs):
             bpy.ops.object.simulation_nodes_cache_delete(selected=True)
-        self.report({"INFO"}, "Simulation cache deleted")
+        self.report({"INFO"}, "Simulation cache deleted (rain and wetness)")
         return {"FINISHED"}
 
 
@@ -330,7 +394,8 @@ class RAINFX_OT_diagnose(bpy.types.Operator):
 
 
 CLASSES = (RAINFX_OT_add_emitter, RAINFX_OT_apply, RAINFX_OT_colliders_add, RAINFX_OT_colliders_remove,
-           RAINFX_OT_revert_lighting, RAINFX_OT_lightning, RAINFX_OT_post, RAINFX_OT_legacy,
+           RAINFX_OT_revert_lighting, RAINFX_OT_lightning, RAINFX_OT_post, RAINFX_OT_backlight,
+           RAINFX_OT_backlight_remove, RAINFX_OT_legacy,
            RAINFX_OT_bake, RAINFX_OT_bake_delete, RAINFX_OT_events, RAINFX_OT_diagnose)
 
 

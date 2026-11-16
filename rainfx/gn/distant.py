@@ -15,17 +15,17 @@ from __future__ import annotations
 
 import bpy
 
+from .dsl import ensure_versioned
+
 GROUP_NAME = "RainFX Distant"
-GROUP_VERSION = 1
+GROUP_VERSION = 2   # 2 (0.4): Width Scale, Clear Radius/Center (shared with the foreground layer)
 
 
 def ensure_group() -> bpy.types.NodeTree:
     ng = bpy.data.node_groups.get(GROUP_NAME)
     if ng is not None and ng.get("rainfx_version") == GROUP_VERSION:
         return ng
-    if ng is not None:
-        bpy.data.node_groups.remove(ng)
-    return build()
+    return ensure_versioned(ng, GROUP_NAME, build)
 
 
 def build() -> bpy.types.NodeTree:
@@ -51,6 +51,12 @@ def build() -> bpy.types.NodeTree:
                 desc="Overall size multiplier of the far streaks")
     b.add_input("Distant Material", "NodeSocketMaterial", parent=p,
                 desc="Flat translucent streak material, wired automatically")
+    b.add_input("Width Scale", "NodeSocketFloat", 1.0, lo=0.05, hi=20.0, parent=p,
+                desc="Extra streak width (the foreground layer widens near streaks as if defocused)")
+    b.add_input("Clear Radius", "NodeSocketFloat", 0.0, lo=0.0, hi=100.0, parent=p,
+                desc="No streaks closer than this to Clear Center (keeps rain off the lens)")
+    b.add_input("Clear Center", "NodeSocketVector", (0.0, 0.0, 0.0), parent=p,
+                desc="Local point the clear zone is centred on (the camera for the foreground layer)")
 
     gi = b.node("NodeGroupInput")
     go = b.node("NodeGroupOutput")
@@ -87,7 +93,11 @@ def build() -> bpy.types.NodeTree:
     # ------------------------------------------------------------- LOOK
     # far streaks: fixed 4 mm-class columns, length bound by the fall speed
     # like a time exposure (snow presets fall slow and read as short dots)
-    width = b.fm("MULTIPLY", GI("Streak Scale"), 0.008)
+    # streaks inside the clear zone are scaled to nothing (cheaper than deleting points)
+    # (a fresh Position node: the field is read on the moved points, not re-derived)
+    here = b.node("GeometryNodeInputPosition").outputs[0]
+    keep = b.fm("GREATER_THAN", b.vlen(b.vm("SUBTRACT", here, GI("Clear Center"))), GI("Clear Radius"))
+    width = b.fm("MULTIPLY", b.fm("MULTIPLY", GI("Streak Scale"), 0.008), GI("Width Scale"))
     length = b.fm("MAXIMUM", b.fm("MULTIPLY", GI("Fall Speed"),
                                   b.fm("MULTIPLY", GI("Streak Scale"), 0.12)), width)
     align = b.node("FunctionNodeAlignRotationToVector", axis="Z")
@@ -104,7 +114,7 @@ def build() -> bpy.types.NodeTree:
     b.links.new(loc, inst.inputs["Points"])
     b.put(inst.inputs["Instance"], setmat.outputs["Geometry"])
     b.put(inst.inputs["Rotation"], b.sout(align, "Rotation"))
-    b.put(inst.inputs["Scale"], b.xyz(width, width, length))
+    b.put(inst.inputs["Scale"], b.vscale(b.xyz(width, width, length), keep))
     # realize: the far buffer is small and to_mesh/render should agree
     real = b.node("GeometryNodeRealizeInstances")
     b.links.new(inst.outputs["Instances"], real.inputs["Geometry"])

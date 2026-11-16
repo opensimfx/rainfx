@@ -26,7 +26,7 @@ Pages consulted while designing RainFX. "Used for" states exactly what was taken
 | https://docs.blender.org/manual/en/latest/modeling/geometry_nodes/simulation/simulation_zone.html | Simulation zone semantics: named attributes only, inputs evaluated once vs every step, Delta Time |
 | https://docs.blender.org/manual/en/latest/advanced/extensions/getting_started.html | Extension manifest schema 1.0.0, required fields, build and validate commands |
 
-The 5.2.1 manual and API pages were read as "latest" / "5.2". Blender 5.2.1 itself could not be run.
+The manual and API pages were read as "latest" / "5.2"; 1.0 was tested in Blender 5.2.3 and 5.2.4.
 
 ### Physics
 
@@ -42,6 +42,30 @@ The 5.2.1 manual and API pages were read as "latest" / "5.2". Blender 5.2.1 itse
 | https://tellusjournal.org/articles/10.16993/tellus.4127 | Large aggregate snowflakes with terminal velocities up to 1.5 m/s |
 | https://www.opticalscientific.com/feeds/blog/standard-unit-rainfall-precipitation-wmo | WMO rain intensity categories: light 2.5 mm/h or less, moderate 2.6-7.5, heavy 7.6 or more, violent over 50 |
 | https://community.wmo.int/site/knowledge-hub/programmes-and-initiatives/aviation/aviation-hazards-precipitation | Showers classed violent above 50 mm/h |
+
+### Look: streak optics, rain fog, wet surfaces, lighting
+
+| Source | Used for |
+|---|---|
+| https://cave.cs.columbia.edu/Statics/publications/pdfs/Garg_IJCV07.pdf (Garg and Nayar, Vision and Rain, IJCV 2007) | A drop is a 165 degree lens, ~94 % refracted / 6 % reflected; a streak changes a pixel by at most ~4 % (beta < 0.039); visibility falls as 1/sqrt(exposure) |
+| Gunn and Kinzer, *The Terminal Velocity of Fall for Water Droplets in Stagnant Air*, J. Meteorol. 6, 243-248 (1949), doi:10.1175/1520-0469(1949)006<0243:TTVOFF>2.0.CO;2; table as reproduced by Yusuf et al., LAUJET (2015) and Adams-Suberu et al. (2018); Hinkle, USDA ARS (1987) | Reference terminal speeds in `test_physics.py`: 4.03, 6.49, 8.06, 8.83, 9.09 m/s at 1-5 mm (checked against the reproduced table 2026-11-16; Hinkle gives the same 4.03 m/s at 1 mm, sea level) |
+| https://en.wikipedia.org/wiki/Capillary_length (capillary length) and de Gennes, Brochard-Wyart, Quéré, *Capillarity and Wetting Phenomena* (Springer 2004), ch. 1 | l_c = sqrt(sigma / rho g) = 2.7 mm for water; a pendant drop detaches at a size set by l_c (drips 4-6 mm) |
+| https://openaccess.thecvf.com/content_ICCV_2019/papers/Halder_Physics-Based_Rendering_for_Improving_Robustness_to_Rain_ICCV_2019_paper.pdf (Halder et al., ICCV 2019) | Rain extinction exp(-0.312 R^0.67 d), d in km |
+| https://ams.confex.com/ams/pdfpapers/113177.pdf (Gultepe et al., visibility vs precipitation rate) | Cross-check: 10 mm/h rain gives 1-3 km visibility |
+| https://seblagarde.wordpress.com/2012/12/10/observe-rainy-world/ | Observed rainy-world effects: wet = darker diffuse and brighter specular, non-porous materials do not darken, puddle mirror, halos in heavy rain, drops visible mainly when backlit |
+| https://seblagarde.wordpress.com/2013/04/14/water-drop-3b-physically-based-wet-surfaces/ | Wet albedo factor lerp(1, 0.2, porosity), porosity from roughness, water F0 0.02, flat puddle normals |
+| https://www.wevideo.com/blog/rain-videography | "Front light snow and backlight rain" (search excerpt) |
+| https://www.rogerdeakins.com/forums/topic/lighting-a-rainy-night-scene/ | Street lights behind the action as the backlight for rain |
+
+### Impacts and detail: splash threshold, crowns, spray, ripples, layers, lens
+
+| Source | Used for |
+|---|---|
+| https://doi.org/10.1146/annurev.fluid.38.050304.092144 (Yarin, Drop Impact Dynamics, Annu. Rev. Fluid Mech. 38, 2006) | Splashing parameter K = We Oh^-2/5, wet-film threshold K_S = 2100 + 5880 H^1.44, crown radius ~ sqrt(t), crown height slope ~0.57, Worthington jet at ~116 ms |
+| https://www.cambridge.org/core/journals/journal-of-fluid-mechanics/article/experimental-study-on-spray-in-the-atmospheric-surface-layer-by-raindrops-impacting-water-surface/5E8DDD97FF98111525F0AF950C9816B7 | Spray from raindrops on water: number density decays exponentially with height, maximum heights ~0.33-0.45 m |
+| https://seblagarde.wordpress.com/2013/01/03/water-drop-2b-dynamic-rain-and-its-effects/ | Layered procedural ripple rings: ring factor sin(clamp(t 9, 0, 3) pi), four layers, time multipliers 1 / 0.85 / 0.93 / 1.13, x1.6 speed; rings only where water stands |
+| https://beforesandafters.com/2020/03/11/when-you-need-to-comp-a-cg-creature-into-practical-rain-plates/ | Rain built as far, mid and near layers with matching depth of field |
+| https://radiant-shaders.com/learn/rain-on-glass | Drops as lenses with a sharp/blurred split, drops taller than wide with a flat bottom, static and sliding drops with trails |
 
 ### Not sourced (entered from general knowledge)
 

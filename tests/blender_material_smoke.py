@@ -50,6 +50,9 @@ def main():
         mat = M.get_material(kind)
         tr = sc(mat, "Transmission Weight")
         alpha = sc(mat, "Alpha")
+        if alpha is None:                     # streak kinds: own shader, alpha from the jitter chain
+            alpha = next(n.inputs[1].default_value for n in mat.node_tree.nodes
+                         if n.get("rainfx_streak_alpha_out"))
         assert mat.name == f"RainFX {kind.capitalize()}"
         assert 0.0 <= alpha <= 1.0 and (tr is None or 0.0 <= tr <= 1.0), (kind, alpha, tr)
         if kind in ("water", "splash", "drop") and hasattr(mat, "surface_render_method"):

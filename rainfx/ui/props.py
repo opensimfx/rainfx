@@ -34,6 +34,12 @@ def _on_change(self, context):
             from ..scene import distant as dist
             dist.refresh(context.scene, True, box=tuple(self.box), density=self.distant_density,
                          follow=self.follow_object, seed=self.seed)
+        if self.foreground_rain:
+            from ..scene import foreground as fg
+            fg.refresh(context.scene, True, ob=ob, density=self.foreground_density, seed=self.seed)
+        if self.drips:
+            from ..scene import drips
+            drips.refresh(context.scene, True, density=self.drip_density, seed=self.seed)
         if self.lens_drops:
             compositor.apply_lens(context.scene, self.lens_strength)
 
@@ -51,6 +57,18 @@ def _on_distant(self, context):
     from ..scene import distant as dist
     dist.refresh(context.scene, self.distant_rain, box=tuple(self.box),
                  density=self.distant_density, follow=self.follow_object, seed=self.seed)
+
+
+def _on_foreground(self, context):
+    """Foreground rain toggle/density: create or remove the near-camera layer."""
+    from ..scene import foreground as fg
+    fg.refresh(context.scene, self.foreground_rain, density=self.foreground_density, seed=self.seed)
+
+
+def _on_drips(self, context):
+    """Drips toggle/density: find the dripping edges again and rebuild the layer."""
+    from ..scene import drips
+    drips.refresh(context.scene, self.drips, density=self.drip_density, seed=self.seed)
 
 
 def _on_wetness(self, context):
@@ -83,7 +101,7 @@ class RainFXSettings(bpy.types.PropertyGroup):
                                                "(for close-up shots; drops render ball-shaped when Shutter is 0)",
                                    update=_on_change)
     wetness: BoolProperty(name="Wetness", default=False,
-                          description="Accumulate a wetness attribute on collider faces at rain impact points "
+                          description="Accumulate a wetness attribute on collider surfaces at rain impact points "
                                       "(adds a RainFX Wetness modifier to each collider)",
                           update=_on_wetness)
     wet_radius: FloatProperty(name="Wet Radius", default=0.2, min=0.001, max=5.0, unit="LENGTH",
@@ -92,6 +110,14 @@ class RainFXSettings(bpy.types.PropertyGroup):
                                 description="How quickly impacts soak a face toward full wetness", update=_on_wetness)
     wet_dry_rate: FloatProperty(name="Dry Rate", default=0.02, min=0.0, max=1.0,
                                 description="Wetness decay per second; 0 keeps surfaces soaked", update=_on_wetness)
+    wet_start: BoolProperty(name="Already Wet", default=True,
+                            description="Surfaces the rain can reach are wet (snow presets: snow-covered) from the "
+                                        "first frame, as when it has been falling a while; off, they wet up or snow over",
+                            update=_on_wetness)
+    puddles: FloatProperty(name="Puddles", default=1.0, min=0.0, max=2.0,
+                           description="Standing water on exposed flat ground (1 = the preset's rain rate; "
+                                       "0 = none). Water collects in the low spots of the puddle height map",
+                           update=_on_wetness)
     distant_rain: BoolProperty(name="Distant Rain", default=False,
                                description="Add a cheap background drizzle layer so the near-field "
                                            "simulation can stay sparse",
@@ -100,10 +126,32 @@ class RainFXSettings(bpy.types.PropertyGroup):
                                    description="Streak density of the background layer (scaled from "
                                                "the simulation volume)",
                                    update=_on_distant)
+    foreground_rain: BoolProperty(name="Foreground Rain", default=False,
+                                  description="Add big, soft streaks around the active camera (0.6-4 m from "
+                                              "the lens), like the near layer of filmed rain; rain presets only",
+                                  update=_on_foreground)
+    foreground_density: FloatProperty(name="Foreground Density", default=1.0, min=0.0, max=3.0,
+                                      description="Streak density of the foreground layer (1 = the preset's "
+                                                  "drop density)",
+                                      update=_on_foreground)
+    drips: BoolProperty(name="Drips", default=False,
+                        description="Drops falling from the edges of roofs, sills and lamp heads the rain "
+                                    "reaches (found on the colliders; rain presets only)",
+                        update=_on_drips)
+    drip_density: FloatProperty(name="Drip Density", default=1.0, min=0.0, max=4.0,
+                                description="Drip points per metre of dripping edge (1 = one every 30 cm)",
+                                update=_on_drips)
     lens_drops: BoolProperty(name="Lens Drops", default=False,
                              description="Add a compositing droplet-displacement stage that mimics drops "
                                          "and streaks stuck to the camera lens",
                              update=_on_lens)
+    backlight_style: EnumProperty(name="Backlight", items=(
+        ("STREET", "Street Lamp", "Warm hard light, as from a street lamp behind the rain"),
+        ("MOON", "Moonlight", "Cool rim light from higher up"),
+        ("NEUTRAL", "Neutral", "White rim light for daylight or overcast shots")),
+        default="STREET", description="Colour and angle of the rain backlight")
+    backlight_strength: FloatProperty(name="Backlight Strength", default=1.0, min=0.05, max=20.0,
+                                      description="1 = about 3 W/m^2 at the rain in front of the camera")
     lens_strength: FloatProperty(name="Lens Strength", default=1.0, min=0.1, max=3.0,
                                  description="Bigger droplets and stronger refraction on the lens",
                                  update=_on_lens)

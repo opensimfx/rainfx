@@ -1,0 +1,108 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  tests:
+    name: Tests (${{ matrix.os }}, Python ${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python: ["3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m pip install pytest
+      - run: python -m pytest -q
+      - name: Presets and their doc are up to date
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          python tools/gen_presets.py
+          python tools/gen_preset_docs.py
+          git diff --exit-code rainfx/data/presets.json docs/PRESETS.md
+
+  blender-linux:
+    name: Blender ${{ matrix.blender }} (Linux)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        blender: ["5.2.3", "5.2.4"]
+    steps:
+      - uses: actions/checkout@v5
+      - name: System libraries for headless Blender
+        run: sudo apt-get update && sudo apt-get install -y libxi6 libxxf86vm1 libxfixes3 libxrender1 libxkbcommon0 libsm6 libgl1 libegl1
+      - name: Download Blender
+        run: |
+          curl -sSL -o blender.tar.xz "https://download.blender.org/release/Blender5.2/blender-${{ matrix.blender }}-linux-x64.tar.xz"
+          tar -xf blender.tar.xz
+          echo "BLENDER=$PWD/blender-${{ matrix.blender }}-linux-x64/blender" >> "$GITHUB_ENV"
+      - name: Build and validate the extension zip
+        run: |
+          python3 tools/build_extension.py
+          "$BLENDER" --command extension validate dist/rainfx-*.zip
+      # Every Blender test that does not render with EEVEE (no GPU on the runners;
+      # those run on a desktop machine, docs/DEVELOPMENT.md).
+      - name: Simulation, scene, wetness, drips, bake, farm, upgrade and UI tests
+        run: |
+          set -e
+          for t in smoke scene ui bake bake_bg determinism follow inside motion wetness events hardening upgrade drips farm; do
+            echo "::group::blender_${t}_smoke"
+            name="tests/blender_${t}_smoke.py"; args=""
+            if [ "$t" = smoke ]; then name="tests/blender_smoke.py"; args="--control heavy_rain hailstorm light_snow"; fi
+            "$BLENDER" -b --factory-startup --python-exit-code 1 --python "$name" -- $args
+            echo "::endgroup::"
+          done
+      - name: Cycles render of the street bench (CPU)
+        run: |
+          RAINFX_W=480 RAINFX_H=270 "$BLENDER" -b --factory-startup --python tools/render_look.py -- street_night heavy_rain look.png 16 24
+          "$BLENDER" -b --factory-startup --python-exit-code 1 --python-expr "import bpy, numpy as np; im = bpy.data.images.load('$PWD/look.png'); a = np.array(im.pixels[:]).reshape(-1, 4); m = float(a[:, :3].mean()); print('mean', m); assert 0.01 < m < 0.9, m"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: look-linux-${{ matrix.blender }}
+          path: look.png
+          if-no-files-found: ignore
+
+  blender-windows:
+    name: Blender 5.2.3 (Windows)
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+      - name: Download Blender
+        run: |
+          curl -sSL -o blender.zip "https://download.blender.org/release/Blender5.2/blender-5.2.3-windows-x64.zip"
+          unzip -q blender.zip
+          echo "BLENDER=$PWD/blender-5.2.3-windows-x64/blender.exe" >> "$GITHUB_ENV"
+      # The background bake pastes Windows paths into its child script (backslashes);
+      # bake_bg and farm cover that path, the rest the add-on on Windows in general.
+      - name: Simulation, wetness, drips, bake, farm, upgrade and UI tests
+        run: |
+          set -e
+          for t in smoke ui bake bake_bg wetness hardening upgrade drips farm; do
+            echo "::group::blender_${t}_smoke"
+            name="tests/blender_${t}_smoke.py"; args=""
+            if [ "$t" = smoke ]; then name="tests/blender_smoke.py"; args="heavy_rain"; fi
+            "$BLENDER" -b --factory-startup --python-exit-code 1 --python "$name" -- $args
+            echo "::endgroup::"
+          done
+      - name: Cycles render of the street bench (CPU)
+        run: |
+          RAINFX_W=480 RAINFX_H=270 "$BLENDER" -b --factory-startup --python tools/render_look.py -- street_night heavy_rain look.png 16 24
+          "$BLENDER" -b --factory-startup --python-exit-code 1 --python-expr "import bpy, numpy as np, os; im = bpy.data.images.load(os.path.abspath('look.png')); a = np.array(im.pixels[:]).reshape(-1, 4); m = float(a[:, :3].mean()); print('mean', m); assert 0.01 < m < 0.9, m"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: look-windows
+          path: look.png
+          if-no-files-found: ignore

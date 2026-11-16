@@ -3,6 +3,9 @@
   /Applications/Blender.app/Contents/MacOS/Blender -b --factory-startup \
       --python tools/render_preview.py -- <preset_id> <out.png> [samples]
 
+RAINFX_LOOK=night            dark world, no sun (rain should nearly vanish)
+RAINFX_LOOK=night_backlight  dark world plus *Add Rain Backlight* (street lamp)
+
 Presets: dew, drizzle, light_rain, moderate_rain, heavy_rain, downpour,
          wind_driven_rain, thunderstorm, freezing_rain, sleet, hailstorm,
          light_snow, heavy_snow, blizzard
@@ -43,7 +46,7 @@ def clear_scene():
             bpy.data.collections.remove(collection)
 
 
-def sky_world():
+def sky_world(strength=0.12):
     world = bpy.data.worlds.new("RainFX Sky")
     bpy.context.scene.world = world
     world.use_nodes = True
@@ -57,7 +60,7 @@ def sky_world():
     sky.sun_rotation = 2.2
     tree.links.new(sky.outputs[0], bg.inputs[0])
     # Overcast: a dim sky so the drops read against it (a bright clear sky hid them).
-    bg.inputs[1].default_value = 0.12
+    bg.inputs[1].default_value = strength
     tree.links.new(bg.outputs[0], out.inputs[0])
 
 
@@ -147,9 +150,15 @@ def main(argv):
             bsdf.inputs["Base Color"].default_value = (0.05, 0.05, 0.055, 1.0)
             bsdf.inputs["Roughness"].default_value = 0.3
 
-    sky_world()
-    sun_lamp()
+    look = os.environ.get("RAINFX_LOOK", "")
+    if look.startswith("night"):
+        sky_world(0.004)
+    else:
+        sky_world()
+        sun_lamp()
     camera_in_volume(emitter, scene.rainfx.box)
+    if look == "night_backlight":
+        bpy.ops.rainfx.add_backlight()
 
     # Fill the volume: a packed bake (no saved .blend needed) up to the render frame.
     scene.frame_set(1)

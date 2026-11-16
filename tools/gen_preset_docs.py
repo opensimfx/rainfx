@@ -98,10 +98,10 @@ Only `id` and `name` are required; every other field has the default shown in `c
 | air | `wind_ms`, `wind_dir_deg` | m/s, deg | Mean wind; 0 deg = +Y, 90 deg = +X |
 | | `gust_strength`, `gust_scale_m`, `gust_speed_ms` | m/s, m, m/s | Noise gusts: amplitude, spatial size, drift speed |
 | | `inertia` | x | Multiplies relaxation time tau = v_t / g (flakes > 1 follow air more slowly) |
-| impact | `splash_amount`, `splash_speed`, `splash_life_min/max`, `splash_size` | 1, m/s, s, fraction | Splash droplets per impact |
+| impact | `splash_amount`, `splash_speed`, `splash_life_min/max`, `splash_size` | 1, m/s, s, fraction | Splash droplets thrown by a 2 mm drop at terminal speed; each drop's own K = We Oh^-2/5 scales it (none below the threshold, up to 2x for big drops) |
 | | `restitution`, `max_bounces` | 0-1, 1 | Bounce (hail, pellets); 0 = stick/recycle |
 | look | `shutter_s`, `visual_scale`, `material` | s, x, `water`/`ice`/`snow` | Streak length = speed x shutter (0 = spheres) |
-| atmosphere | `fog_density`, `fog_anisotropy`, `sky_mult`, `sun_mult` | 1/m, 0-1, x, x | Fog volume and sky/sun dimming |
+| atmosphere | `fog_density`, `fog_mist`, `fog_anisotropy`, `sky_mult`, `sun_mult` | 1/m, x, 0-1, x, x | Fog volume and sky/sun dimming. Rain presets set `fog_mist`: fog = fog_mist x rain extinction 0.312e-3 R^0.67 /m, so it follows `rate_mm_h`; with `fog_mist` 0, `fog_density` is used as-is |
 | lightning | `lightning_per_min`, `lightning_energy` | 1/min, W | Flash rate and light power |
 | dew | `dew_density_m2`, `dew_min_normal_z` | 1/m2, -1..1 | Bead density, minimum up-facing normal |
 | legacy engine | `col_permeability`, `col_stickiness`, `col_damping`, `col_friction`, `legacy_drag` | | Collision modifier / Newtonian settings |

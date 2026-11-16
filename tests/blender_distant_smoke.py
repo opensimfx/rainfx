@@ -22,6 +22,9 @@ Checks (headless, Blender 5.2.1):
 from __future__ import annotations
 
 import sys
+import tempfile as _tempfile
+
+RAINBAKE = _tempfile.gettempdir().replace("\\", "/") + "/rainbake"   # /tmp is not on Windows
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -183,7 +186,7 @@ def main():
     rn = scene.render
     rn.engine = "BLENDER_EEVEE"
     rn.resolution_x = rn.resolution_y = 64
-    rn.filepath = "/tmp/rainbake/distant.png"
+    rn.filepath = RAINBAKE + "/distant.png"
     cam_data = bpy.data.cameras.new("cam")
     cam = bpy.data.objects.new("cam", cam_data)
     cam.location = (0, -25, 12)

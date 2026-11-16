@@ -13,6 +13,9 @@ camera rays; an EEVEE frame with all of it renders.
 """
 import math
 import sys
+import tempfile as _tempfile
+
+RAINBAKE = _tempfile.gettempdir().replace("\\", "/") + "/rainbake"   # /tmp is not on Windows
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -163,7 +166,7 @@ def main():
     assert bpy.ops.rainfx.add_backlight() == {"FINISHED"}
     scene.render.engine = "BLENDER_EEVEE"
     scene.render.resolution_x = scene.render.resolution_y = 64
-    scene.render.filepath = "/tmp/rainbake/look.png"
+    scene.render.filepath = RAINBAKE + "/look.png"
     scene.frame_set(20)
     bpy.ops.render.render(write_still=True)
     print("[Render] EEVEE frame with backlight, fog, glow rendered")

@@ -18,6 +18,9 @@ Checks (headless, Blender 5.2.1):
 from __future__ import annotations
 
 import sys
+import tempfile as _tempfile
+
+RAINBAKE = _tempfile.gettempdir().replace("\\", "/") + "/rainbake"   # /tmp is not on Windows
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -158,25 +161,25 @@ co.apply_lens(scene, 2.0)
 rn = scene.render
 rn.engine = "BLENDER_EEVEE"
 rn.resolution_x = rn.resolution_y = 64
-rn.filepath = "/tmp/rainbake/lens_on.png"
+rn.filepath = RAINBAKE + "/lens_on.png"
 scene.frame_set(20)
 bpy.ops.render.render(write_still=True)
 base_tree = scene.render.use_compositing
 scene.render.use_compositing = False
-rn.filepath = "/tmp/rainbake/lens_off.png"
+rn.filepath = RAINBAKE + "/lens_off.png"
 bpy.ops.render.render(write_still=True)
 scene.render.use_compositing = base_tree
-diff = _mean_diff("/tmp/rainbake/lens_on.png", "/tmp/rainbake/lens_off.png")
+diff = _mean_diff(RAINBAKE + "/lens_on.png", RAINBAKE + "/lens_off.png")
 assert diff > 1e-4, f"lens chain visually inert: {diff}"
 print(f"[Render] compositing changes the 64px frame (mean diff {diff:.6f})")
 
-rn.filepath = "/tmp/rainbake/lens_f10.png"
+rn.filepath = RAINBAKE + "/lens_f10.png"
 scene.frame_set(10)
 bpy.ops.render.render(write_still=True)
-rn.filepath = "/tmp/rainbake/lens_f26.png"
+rn.filepath = RAINBAKE + "/lens_f26.png"
 scene.frame_set(26)
 bpy.ops.render.render(write_still=True)
-drift = _mean_diff("/tmp/rainbake/lens_f10.png", "/tmp/rainbake/lens_f26.png")
+drift = _mean_diff(RAINBAKE + "/lens_f10.png", RAINBAKE + "/lens_f26.png")
 assert drift > 0.0, "frames 10 vs 26 identical: droplets do not drift"
 print(f"[Motion] droplets drift (frame 10 vs 26 mean diff {drift:.6f})")
 

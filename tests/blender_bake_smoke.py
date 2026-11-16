@@ -11,6 +11,9 @@ custom frame range, after a packed bake, and after deletion.
 import os
 import shutil
 import sys
+import tempfile as _tempfile
+
+RAINBAKE = _tempfile.gettempdir().replace("\\", "/") + "/rainbake"   # /tmp is not on Windows
 from pathlib import Path
 
 import numpy as np
@@ -25,7 +28,7 @@ from rainfx import compat
 from rainfx.scene import emitter as em
 import blender_smoke as T
 
-OUT = "/tmp/rainbake"
+OUT = RAINBAKE
 
 
 def walk(obj, frames):

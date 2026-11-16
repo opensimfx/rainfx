@@ -14,6 +14,9 @@ is rain-only; an EEVEE frame with all of it renders.
 """
 import math
 import sys
+import tempfile as _tempfile
+
+RAINBAKE = _tempfile.gettempdir().replace("\\", "/") + "/rainbake"   # /tmp is not on Windows
 from pathlib import Path
 
 import numpy as np
@@ -170,7 +173,7 @@ def check_ripples_spray_foreground():
 
     sc.render.engine = "BLENDER_EEVEE"
     sc.render.resolution_x = sc.render.resolution_y = 64
-    sc.render.filepath = "/tmp/rainbake/detail.png"
+    sc.render.filepath = RAINBAKE + "/detail.png"
     sc.frame_set(20)
     bpy.ops.render.render(write_still=True)
     print("[Render] EEVEE frame with crowns, spray mist, ripples and foreground rain rendered")

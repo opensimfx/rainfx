@@ -17,6 +17,9 @@ from __future__ import annotations
 
 import json
 import sys
+import tempfile as _tempfile
+
+RAINBAKE = _tempfile.gettempdir().replace("\\", "/") + "/rainbake"   # /tmp is not on Windows
 import time
 from pathlib import Path
 
@@ -31,14 +34,14 @@ from rainfx import compat  # noqa: E402
 from rainfx.scene import baker  # noqa: E402
 from rainfx.scene import emitter as em  # noqa: E402
 
-OUT = Path("/tmp/rainbake/bg8.blend")
+OUT = Path(RAINBAKE + "/bg8.blend")
 OUT.unlink(missing_ok=True)
 import shutil  # noqa: E402
 
 # wipe any bake residue from earlier smoke runs: every bake makes a NEW
 # record-id subfolder under the bake directory, so stale blobs pile up
-shutil.rmtree("/tmp/rainbake", ignore_errors=True)
-Path("/tmp/rainbake").mkdir(exist_ok=True)  # rmtree removed the dir the save writes into
+shutil.rmtree(RAINBAKE, ignore_errors=True)
+Path(RAINBAKE).mkdir(exist_ok=True)  # rmtree removed the dir the save writes into
 
 T.make_world()
 sc = bpy.context.scene

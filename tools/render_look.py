@@ -225,7 +225,7 @@ def camera(shot: str):
 def main(argv):
     shot = argv[0] if argv else "street_night"
     preset_id = argv[1] if len(argv) > 1 else "heavy_rain"
-    out = Path(argv[2]) if len(argv) > 2 else ROOT / "docs" / "img" / f"{shot}_{preset_id}.png"
+    out = Path(argv[2]).resolve() if len(argv) > 2 else ROOT / "docs" / "img" / f"{shot}_{preset_id}.png"
     samples = int(argv[3]) if len(argv) > 3 else 96
     frame = int(argv[4]) if len(argv) > 4 else 48
     night = shot in ("street_night", "puddle") or os.environ.get("RAINFX_NIGHT") == "1"

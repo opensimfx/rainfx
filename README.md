@@ -40,7 +40,7 @@ collide with your scene geometry through raycasts; the look follows how rain is 
 
 ## Install
 
-Requires Blender **5.0** or newer; tested on **5.2 LTS**.
+Requires Blender **5.2 LTS**.
 
 Download `rainfx-1.0.0.zip` from the [releases](https://github.com/opensimfx/rainfx/releases), or build it:
 

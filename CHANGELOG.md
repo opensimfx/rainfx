@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- The extension zip now contains the GPL-3.0 `LICENSE`.
+
 ## 1.0.0 (2026-11-16)
 
 First stable release. Scenes made with 0.3 open and play as saved; the first change you make (or *Apply*)

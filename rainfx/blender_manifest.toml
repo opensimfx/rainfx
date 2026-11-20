@@ -10,7 +10,7 @@ type = "add-on"
 website = "https://github.com/opensimfx/rainfx"
 tags = ["Physics", "Render", "Lighting"]
 
-blender_version_min = "5.0.0"
+blender_version_min = "5.2.0"
 license = [
   "SPDX:GPL-3.0-or-later",
 ]

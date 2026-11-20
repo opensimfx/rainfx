@@ -106,3 +106,37 @@ jobs:
           name: look-windows
           path: look.png
           if-no-files-found: ignore
+
+  blender-macos:
+    name: Blender 5.2.3 (macOS)
+    runs-on: macos-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+      - name: Download Blender
+        run: |
+          curl -sSL -o blender.dmg "https://download.blender.org/release/Blender5.2/blender-5.2.3-macos-arm64.dmg"
+          hdiutil attach -nobrowse -readonly -mountpoint "$RUNNER_TEMP/blender" blender.dmg
+          echo "BLENDER=$RUNNER_TEMP/blender/Blender.app/Contents/MacOS/Blender" >> "$GITHUB_ENV"
+      - name: Simulation, wetness, drips, bake, farm, upgrade and UI tests
+        run: |
+          set -e
+          for t in smoke ui bake bake_bg wetness hardening upgrade drips farm; do
+            echo "::group::blender_${t}_smoke"
+            name="tests/blender_${t}_smoke.py"; args=""
+            if [ "$t" = smoke ]; then name="tests/blender_smoke.py"; args="heavy_rain"; fi
+            "$BLENDER" -b --factory-startup --python-exit-code 1 --python "$name" -- $args
+            echo "::endgroup::"
+          done
+      - name: Cycles render of the street bench (CPU)
+        run: |
+          RAINFX_W=480 RAINFX_H=270 "$BLENDER" -b --factory-startup --python tools/render_look.py -- street_night heavy_rain look.png 16 24
+          "$BLENDER" -b --factory-startup --python-exit-code 1 --python-expr "import bpy, numpy as np, os; im = bpy.data.images.load(os.path.abspath('look.png')); a = np.array(im.pixels[:]).reshape(-1, 4); m = float(a[:, :3].mean()); print('mean', m); assert 0.01 < m < 0.9, m"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: look-macos
+          path: look.png
+          if-no-files-found: ignore

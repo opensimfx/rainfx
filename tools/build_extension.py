@@ -20,4 +20,5 @@ with zipfile.ZipFile(target, "w", zipfile.ZIP_DEFLATED) as z:
     for f in sorted(pkg.rglob("*")):
         if f.is_file() and "__pycache__" not in f.parts and f.suffix != ".pyc" and f.name != ".DS_Store":
             z.write(f, f.relative_to(pkg).as_posix())     # manifest must sit at the zip root
+    z.write(root / "LICENSE", "LICENSE")                  # the GPL-3.0 text ships in the package
 print("built", target, f"{target.stat().st_size/1024:.0f} KiB")

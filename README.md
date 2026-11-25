@@ -42,7 +42,8 @@ collide with your scene geometry through raycasts; the look follows how rain is 
 
 Requires Blender **5.2 LTS**.
 
-Download `rainfx-1.0.0.zip` from the [releases](https://github.com/opensimfx/rainfx/releases), or build it:
+RainFX is sold on [Gumroad](https://arshth.gumroad.com/l/rainfx); GitHub releases no longer carry the zip.
+The source here is GPL-3.0, so you can build it yourself:
 
 ```bash
 python tools/build_extension.py        # -> dist/rainfx-1.0.0.zip

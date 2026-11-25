@@ -1,7 +1,6 @@
 # Development and Testing
 
-How to run, test and release RainFX. Architecture is in [SYSTEM_DESIGN.md](SYSTEM_DESIGN.md); contribution rules in
-[CONTRIBUTING.md](../CONTRIBUTING.md).
+How to run, test and release RainFX. Architecture is in [SYSTEM_DESIGN.md](SYSTEM_DESIGN.md).
 
 ## Testing
 

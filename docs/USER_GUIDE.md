@@ -228,7 +228,7 @@ GPL identifier), plus optional `tags`, `website`, `copyright` and `[permissions]
 | Glare node settings became sockets | 5.0 | try/except setters | Checked that it does not fail |
 | `bpy.props` storage no longer dict-accessible (`obj["prop"]` for registered properties) | 5.0 notes | RainFX stores plain custom properties (`rainfx_emitter`, `rainfx_preset`) and registered properties only through attribute access | Not specifically tested |
 
-Rule for contributors: any new API call that is not present identically in 5.0 and 5.2 goes through `compat.py` with a
+Rule for new code: any new API call that is not present identically in 5.0 and 5.2 goes through `compat.py` with a
 comment naming the release note.
 
 ### 7. Integration recipes

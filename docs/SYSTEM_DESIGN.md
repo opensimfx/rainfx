@@ -424,7 +424,6 @@ rainfx_project/
 ├── README.md
 ├── LICENSE                         GPL-3.0-or-later
 ├── CHANGELOG.md
-├── CONTRIBUTING.md
 ├── pyproject.toml                  project metadata, pytest configuration
 ├── .github/logo.png                add-on icon (README heading)
 ├── docs/
